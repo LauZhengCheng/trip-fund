@@ -27,9 +27,9 @@
 |---|---|---|---|
 | 1 | 建项目骨架（Vite + React + TS + 依赖） | [x] | 2026-08-24 |
 | 2 | 配置项目文件（Tailwind v4、PWA 插件、.env、.gitignore） | [x] | 2026-08-24 |
-| 3 | Git 初始化并推上 GitHub | [ ] | |
-| 4 | 部署到 Cloudflare Pages | [ ] | |
-| 5 | Supabase 建表（8 张表 + RLS + role_level()） | [ ] | |
+| 3 | Git 初始化并推上 GitHub | [x] | 2026-08-24 |
+| 4 | 部署到 Cloudflare Pages | [x] | 2026-08-24 |
+| 5 | Supabase 建表（8 张表 + RLS + role_level()） | [x] | 2026-08-24 |
 | 6 | 登录功能（Magic Link） | [ ] | |
 | 7 | 记一笔 + 列表 + 余额 | [ ] | |
 | 8 | 防休眠定时任务（GitHub Actions） | [ ] | |
@@ -38,8 +38,8 @@
 
 | PR | 分支 | 提交信息 | 步骤 | 状态 |
 |---|---|---|---|---|
-| #1 | `chore/scaffold` | `chore: scaffold vite react ts project` | 01–03 | [ ] |
-| #2 | `ci/cloudflare-pages` | `ci: deploy to cloudflare pages` | 04 | [ ] |
+| #1 | `chore/scaffold` | `chore: scaffold vite react ts project` | 01–03 | [x] |
+| #2 | `ci/cloudflare-pages` | `ci: deploy to cloudflare pages` | 04 | [x]（网页操作，非 git commit，已在 Cloudflare Dashboard 完成） |
 | #3 | `feat/db-schema` | `feat: database schema and rls policies` | 05 | [ ] |
 | #4 | `feat/auth` | `feat: magic link sign-in` | 06 | [ ] |
 | #5 | `feat/entries` | `feat: record entries and wallet balances` | 07 | [ ] |
@@ -98,7 +98,10 @@
 
 ## 当前状态
 
-**步骤 2 完成**：Tailwind v4 + vite-plugin-pwa 接入 `vite.config.ts`，`.env`/`.env.example`/`.gitignore`/`README.md` 就位，`.env` 已确认不会被提交。
-下一步：Day 1 步骤 3，Git 初始化并推上 GitHub。
+**步骤 4 完成并验证**：网址 `trip-fund.lauzhengcheng.workers.dev`，手机浏览器打开确认能看到页面。
+注意（供以后排查参考）：
+- Cloudflare 改版后旧版 DAY1.md 里「Pages → 建立应用程式」路径已不存在，实际走 Compute → Workers & Pages → Create application → 连 Git 仓库，效果等价。
+- 新版 Workers 部署后默认**不会**开放公网访问，要手动去 Domains 分页把 Production 那一行的 `workers.dev` 开关打开，否则显示 "No URLs enabled"。
+下一步：Day 1 步骤 5，Supabase 建表。
 
 *最后更新：2026-08-24*
