@@ -30,7 +30,7 @@
 | 3 | Git 初始化并推上 GitHub | [x] | 2026-08-24 |
 | 4 | 部署到 Cloudflare Pages | [x] | 2026-08-24 |
 | 5 | Supabase 建表（8 张表 + RLS + role_level()） | [x] | 2026-08-24 |
-| 6 | 登录功能（Magic Link） | [ ] | |
+| 6 | 登录功能（Magic Link） | [x] | 2026-08-24 |
 | 7 | 记一笔 + 列表 + 余额 | [ ] | |
 | 8 | 防休眠定时任务（GitHub Actions） | [ ] | |
 
@@ -40,8 +40,9 @@
 |---|---|---|---|---|
 | #1 | `chore/scaffold` | `chore: scaffold vite react ts project` | 01–03 | [x] |
 | #2 | `ci/cloudflare-pages` | `ci: deploy to cloudflare pages` | 04 | [x]（网页操作，非 git commit，已在 Cloudflare Dashboard 完成） |
-| #3 | `feat/db-schema` | `feat: database schema and rls policies` | 05 | [ ] |
-| #4 | `feat/auth` | `feat: magic link sign-in` | 06 | [ ] |
+| #3 | `feat/db-schema` | `feat: database schema and rls policies` | 05 | [x] |
+| — | `fix/wrangler-config` | `fix: add wrangler.jsonc so Cloudflare branch builds can find the assets` | 补 04 | [x]（04 完成后才发现的坑，见下方备注） |
+| #4 | `feat/auth` | `feat: magic link sign-in` | 06 | [x] |
 | #5 | `feat/entries` | `feat: record entries and wallet balances` | 07 | [ ] |
 | #6 | `ci/keepalive` | `ci: keep supabase project awake` | 08 | [ ] |
 
@@ -98,10 +99,22 @@
 
 ## 当前状态
 
-**步骤 4 完成并验证**：网址 `trip-fund.lauzhengcheng.workers.dev`，手机浏览器打开确认能看到页面。
+**步骤 5 完成并合并**：`supabase/schema.sql` 已在 Supabase 跑通（8 张表 + RLS），
+PR #1 和补充的 `fix/wrangler-config` 都已合并进 `main`，本地已同步。
+
 注意（供以后排查参考）：
 - Cloudflare 改版后旧版 DAY1.md 里「Pages → 建立应用程式」路径已不存在，实际走 Compute → Workers & Pages → Create application → 连 Git 仓库，效果等价。
 - 新版 Workers 部署后默认**不会**开放公网访问，要手动去 Domains 分页把 Production 那一行的 `workers.dev` 开关打开，否则显示 "No URLs enabled"。
-下一步：Day 1 步骤 5，Supabase 建表。
+- **PR/分支的预览构建需要仓库里有 `wrangler.jsonc`**（写明 `assets.directory`），
+  网页精灵建的第一次生产部署不需要这个文件也能跑，但那是因为设置藏在 Cloudflare
+  项目配置里，不在代码里——分支预览构建读不到那份设置，会报
+  "Missing entry-point to Worker script or to assets directory"。已经修好，
+  以后新分支的 PR 都会正常构建。
+
+**步骤 6 完成并验证**：Magic Link 登录跑通——发信、点链接登录、F5 刷新仍保持登录状态。
+顺手清理了 Vite 脚手架留下的没用文件（`App.css`、示意图、旧图标），网页标题也从
+遗留的 `vite-scaffold-tripfund` 改成了 `Trip Fund`。
+
+下一步：Day 1 步骤 7，记一笔 + 列表 + 余额。
 
 *最后更新：2026-08-24*
