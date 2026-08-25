@@ -113,9 +113,11 @@ create table entries (
   wallet_id uuid not null references wallets(id),
   type text not null check (type in (
     'contribution', 'expense', 'fx_out', 'fx_in',
-    'transfer', 'reimbursement', 'refund', 'settlement'
+    'transfer_out', 'transfer_in', 'reimbursement', 'refund', 'settlement'
   )),
-  amount_minor bigint not null,
+  -- amount_minor 一律存正数（金额大小），加还是减完全由 type 决定，
+  -- 见 src/lib/money.ts 的 POSITIVE_TYPES——这是唯一判断正负号的地方。
+  amount_minor bigint not null check (amount_minor >= 0),
   fx_rate numeric,
   category text,
   note text,
@@ -227,9 +229,11 @@ alter table push_subscriptions enable row level security;
 -- RLS 策略
 -- ============================================================
 
--- trips：成员能读；任何登录用户能建（建完触发器自动变 owner）；owner 能改/删
+-- trips：成员能读，创建者也一定能读（不依赖"建账自动变成员"那个触发器的时间点——
+-- 触发器和 INSERT ... RETURNING 的可见性在极少数情况下会打架，见 2026-08-25 的排查）；
+-- 任何登录用户能建（建完触发器自动变 owner）；owner 能改/删
 create policy "trips_read" on trips
-  for select using (role_level(id) >= 1);
+  for select using (role_level(id) >= 1 or created_by = auth.uid());
 
 create policy "trips_insert" on trips
   for insert with check (auth.uid() is not null);

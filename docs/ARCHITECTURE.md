@@ -92,10 +92,13 @@ Android 可以自签 APK 直发，但 iOS 封死，所以走 PWA。
 | `contribution` | 成员出资进公款 | + |
 | `expense` | 公共消费支出 | − |
 | `fx_out` / `fx_in` | 换汇的两条腿（成对出现） | − / + |
-| `transfer` | 同币种搬钱（银行提现到现金） | − / + |
+| `transfer_out` / `transfer_in` | 同币种搬钱的两条腿（银行提现到现金，成对出现） | − / + |
 | `reimbursement` | 还钱给临时垫付的家人 | − |
 | `refund` | 退款、取消订单的钱回来 | + |
 | `settlement` | 行程结束退还剩余 | − |
+
+`amount_minor` 一律存正数（金额大小），加还是减完全由 `type` 决定——
+这样"正负号"只有一个判断的地方（`src/lib/money.ts`），不会散落在各处、也不会存进两个互相矛盾的值。
 
 ### 金额存储
 整数 minor units，禁止浮点。`exponent`：MYR=2，IDR=0。
