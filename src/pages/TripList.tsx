@@ -1,9 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { Avatar } from '../components/Avatar'
 import { useAuth } from '../lib/auth'
 import { errorMessage } from '../lib/errors'
 import { createTrip, listMyTrips, type Trip } from '../lib/trips'
 
-export function TripList({ onSelect }: { onSelect: (trip: Trip) => void }) {
+export function TripList({
+  onSelect,
+  bannerError,
+}: {
+  onSelect: (trip: Trip) => void
+  bannerError?: string
+}) {
   const { user, signOut } = useAuth()
   const [trips, setTrips] = useState<Trip[] | null>(null)
   const [name, setName] = useState('')
@@ -35,10 +42,17 @@ export function TripList({ onSelect }: { onSelect: (trip: Trip) => void }) {
       <div className="mx-auto max-w-sm">
         <div className="mb-5 flex items-center justify-between">
           <h1 className="text-xl font-bold">Your Trips</h1>
-          <button onClick={() => signOut()} className="text-xs text-neutral-400 underline">
-            Sign out
-          </button>
+          <div className="flex items-center gap-3">
+            <Avatar />
+            <button onClick={() => signOut()} className="text-xs text-neutral-400 underline">
+              Sign out
+            </button>
+          </div>
         </div>
+
+        {bannerError && (
+          <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{bannerError}</p>
+        )}
 
         {trips === null && <p className="text-sm text-neutral-400">Loading…</p>}
         {trips?.length === 0 && (

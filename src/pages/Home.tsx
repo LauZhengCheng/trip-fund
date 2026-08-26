@@ -1,20 +1,33 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Avatar } from '../components/Avatar'
 import { EntryList } from '../components/EntryList'
+import { useAuth } from '../lib/auth'
 import { listEntries, type Entry } from '../lib/entries'
 import { errorMessage } from '../lib/errors'
+import { createInviteLink } from '../lib/invites'
+import { getMyRoleLevel } from '../lib/members'
 import { formatMinorUnits, computeBalance } from '../lib/money'
 import type { Trip } from '../lib/trips'
 import { createWallet, listWallets, type Wallet } from '../lib/wallets'
 import { AddEntry } from './AddEntry'
 
 const CURRENCY_SYMBOLS: Record<string, string> = { MYR: 'RM', IDR: 'Rp' }
+const ADMIN_LEVEL = 2
 
 export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   const [wallets, setWallets] = useState<Wallet[] | null>(null)
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null)
   const [entries, setEntries] = useState<Entry[]>([])
+  const [roleLevel, setRoleLevel] = useState(0)
   const [showAddWallet, setShowAddWallet] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
+  const [showInvite, setShowInvite] = useState(false)
+
+  const isAdmin = roleLevel >= ADMIN_LEVEL
+
+  useEffect(() => {
+    getMyRoleLevel(trip.id).then(setRoleLevel)
+  }, [trip.id])
 
   const reloadWallets = useCallback(async () => {
     const list = await listWallets(trip.id)
@@ -51,7 +64,14 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
           ‹ Trips
         </button>
         <h1 className="text-lg font-bold">{trip.name}</h1>
-        <div className="w-12" />
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button onClick={() => setShowInvite(true)} className="text-sm text-neutral-500">
+              Invite
+            </button>
+          )}
+          <Avatar />
+        </div>
       </div>
 
       {wallets && wallets.length > 0 && (
@@ -81,13 +101,19 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
 
       {wallets?.length === 0 && (
         <div className="px-5">
-          <p className="mb-3 text-sm text-neutral-500">No wallets yet. Add your first one to start recording.</p>
-          <button
-            onClick={() => setShowAddWallet(true)}
-            className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
-          >
-            + Add wallet
-          </button>
+          <p className="mb-3 text-sm text-neutral-500">
+            {isAdmin
+              ? 'No wallets yet. Add your first one to start recording.'
+              : 'No wallets yet — ask the trip admin to add one.'}
+          </p>
+          {isAdmin && (
+            <button
+              onClick={() => setShowAddWallet(true)}
+              className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
+            >
+              + Add wallet
+            </button>
+          )}
         </div>
       )}
 
@@ -103,7 +129,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         </div>
       )}
 
-      {activeWallet && (
+      {isAdmin && activeWallet && (
         <button
           onClick={() => setShowAddEntry(true)}
           className="fixed right-5 bottom-6 flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-2xl text-white shadow-lg"
@@ -112,7 +138,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         </button>
       )}
 
-      {wallets && wallets.length > 0 && (
+      {isAdmin && wallets && wallets.length > 0 && (
         <button
           onClick={() => setShowAddWallet(true)}
           className="fixed left-5 bottom-8 text-xs text-neutral-400 underline"
@@ -121,7 +147,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         </button>
       )}
 
-      {showAddWallet && (
+      {isAdmin && showAddWallet && (
         <AddWallet
           tripId={trip.id}
           onDone={() => {
@@ -131,7 +157,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         />
       )}
 
-      {showAddEntry && activeWallet && (
+      {isAdmin && showAddEntry && activeWallet && (
         <AddEntry
           tripId={trip.id}
           wallet={activeWallet}
@@ -141,6 +167,64 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
           }}
         />
       )}
+
+      {isAdmin && showInvite && <InviteLink tripId={trip.id} onDone={() => setShowInvite(false)} />}
+    </div>
+  )
+}
+
+function InviteLink({ tripId, onDone }: { tripId: string; onDone: () => void }) {
+  const { user } = useAuth()
+  const [link, setLink] = useState('')
+  const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    createInviteLink(tripId, user.id)
+      .then(setLink)
+      .catch((err) => setError(errorMessage(err)))
+  }, [tripId, user])
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(link)
+    setCopied(true)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
+      <div className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-5">
+        <h2 className="text-lg font-semibold">Invite a family member</h2>
+        <p className="text-sm text-neutral-500">
+          Anyone who opens this link and signs in gets read-only (member) access to this trip.
+        </p>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        {link && (
+          <div>
+            <input
+              readOnly
+              value={link}
+              onFocus={(e) => e.currentTarget.select()}
+              className="w-full rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm"
+            />
+            <button
+              onClick={handleCopy}
+              className="mt-2 w-full rounded-lg bg-neutral-900 py-2 text-sm font-medium text-white"
+            >
+              {copied ? 'Copied!' : 'Copy link'}
+            </button>
+          </div>
+        )}
+
+        <button
+          onClick={onDone}
+          className="w-full rounded-lg bg-neutral-100 py-2 text-sm font-medium text-neutral-600"
+        >
+          Done
+        </button>
+      </div>
     </div>
   )
 }
