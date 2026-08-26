@@ -226,6 +226,51 @@ create table push_subscriptions (
 alter table push_subscriptions enable row level security;
 
 -- ============================================================
+-- 9. trip_invites —— 邀请链接（id 本身就是邀请码，够长够随机，猜不到）
+-- 只有 admin/owner 能看到、能生成；接受邀请走下面的 accept_invite() 函数，
+-- 不是直接对这张表做 insert（陌生人一开始 role_level 是 0，RLS 规则也过不了）。
+-- ============================================================
+create table trip_invites (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references trips(id) on delete cascade,
+  created_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now(),
+  revoked_at timestamptz
+);
+
+alter table trip_invites enable row level security;
+
+-- ============================================================
+-- accept_invite() —— 凭邀请码把自己加进 members 表
+-- SECURITY DEFINER：接受邀请的人这时候还不是任何角色（role_level = 0），
+-- 绕开 RLS 才能查到邀请码、才能把自己写进 members。
+-- ============================================================
+create or replace function accept_invite(p_invite_id uuid)
+returns setof trips
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_trip_id uuid;
+begin
+  select ti.trip_id into v_trip_id
+  from trip_invites ti
+  where ti.id = p_invite_id and ti.revoked_at is null;
+
+  if v_trip_id is null then
+    raise exception 'This invite link is invalid or has been revoked';
+  end if;
+
+  insert into members (trip_id, user_id, display_name, role)
+  values (v_trip_id, auth.uid(), coalesce(auth.jwt() ->> 'email', 'Member'), 'member')
+  on conflict (trip_id, user_id) do nothing;
+
+  return query select * from trips where id = v_trip_id;
+end;
+$$;
+
+-- ============================================================
 -- RLS 策略
 -- ============================================================
 
@@ -322,6 +367,13 @@ create policy "push_subscriptions_own" on push_subscriptions
     where m.id = push_subscriptions.member_id and m.user_id = auth.uid()
   ));
 
+-- trip_invites：只有 admin/owner 能看/建/撤销邀请链接。
+-- 接受邀请的人不需要（也不允许）直接读这张表，全部走 accept_invite() 函数。
+create policy "trip_invites_admin_manage" on trip_invites
+  for all
+  using (role_level(trip_id) >= 2)
+  with check (role_level(trip_id) >= 2);
+
 -- ============================================================
 -- 显式授权给 authenticated 角色
 -- 建项目时关掉了 "Automatically expose new tables"，所以这一步不会自动发生。
@@ -330,3 +382,4 @@ create policy "push_subscriptions_own" on push_subscriptions
 -- ============================================================
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on all tables in schema public to authenticated;
+grant execute on function accept_invite(uuid) to authenticated;

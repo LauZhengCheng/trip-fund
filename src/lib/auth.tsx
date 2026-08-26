@@ -29,9 +29,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function signInWithEmail(email: string) {
+    // window.location.href (not .origin): if the user opened an invite link
+    // (?invite=...) before logging in, this keeps that query param through the
+    // "email sent -> click link in email -> land back in the app" round trip.
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: window.location.href },
     })
     return { error: error?.message ?? null }
   }

@@ -84,6 +84,24 @@ Android 可以自签 APK 直发，但 iOS 封死，所以走 PWA。
 | `receipts` | 收据照片 | `entry_id`、storage 路径 |
 | `comments` | 家人的提问与回复 | `entry_id`、作者、正文 |
 | `push_subscriptions` | Web Push 订阅信息 | endpoint、密钥、成员 |
+| `trip_invites` | 邀请链接 | `id`（本身就是邀请码）、`trip_id`、`revoked_at` |
+
+### 家人怎么加入一本行程（2026-08-26 补充）
+
+Owner/admin 在 App 里生成邀请链接（往 `trip_invites` 插一行，`id` 是随机 UUID，
+拼进网址 `?invite=<id>`），发给家人。家人打开链接 → 登录（第一次登录会自动建号）→
+App 侦测到网址带邀请码，调用 `accept_invite(邀请码)` 这个数据库函数，把自己加进
+`members` 表，角色固定是 `member`。
+
+不能直接让家人对 `members` 表做 `insert`——现有规则是"只有 admin/owner 能加人"，
+陌生人一开始 `role_level` 是 0，过不了这条规则。`accept_invite()` 用
+`SECURITY DEFINER` 绕开这个限制，但只做这一件事：核对邀请码有效、把调用者加成
+`member`，不能借这个函数干别的。`trip_invites` 表本身只有 admin/owner 能读写，
+接受邀请的人全程不需要（也没有权限）直接碰这张表。
+
+登录邮件的跳转链接要保留住网址上的 `?invite=...`，所以 `emailRedirectTo` 用的是
+当前完整网址（`window.location.href`），不是站点根网址——不然邀请码会在
+"发信 → 点邮件里的链接跳回来"这个来回中弄丢。
 
 ### entries 的 type
 
