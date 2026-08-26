@@ -12,10 +12,10 @@
 
 ## 开工前准备（Zachary 提供）
 
-- [ ] GitHub 私有仓库 `trip-fund`（空的，不勾初始化文件）
-- [ ] Supabase 项目（Region: Southeast Asia (Singapore)）
-- [ ] Cloudflare 账号
-- [ ] 行程名称、成员名字、要开哪几个钱包
+- [x] GitHub 私有仓库 `trip-fund`
+- [x] Supabase 项目（Region: Southeast Asia (Singapore)）
+- [x] Cloudflare 账号
+- [x] 行程名称（Indonesia Family Trip）、钱包（IDR Cash 默认 / MYR Cash，MYR Bank 待加）
 
 ---
 
@@ -32,7 +32,7 @@
 | 5 | Supabase 建表（8 张表 + RLS + role_level()） | [x] | 2026-08-24 |
 | 6 | 登录功能（Magic Link） | [x] | 2026-08-24 |
 | 7 | 记一笔 + 列表 + 余额 | [x] | 2026-08-25 |
-| 8 | 防休眠定时任务（GitHub Actions） | [ ] | |
+| 8 | 防休眠定时任务（GitHub Actions） | [x] | 2026-08-25 |
 
 ### 对应 PR
 
@@ -44,7 +44,7 @@
 | — | `fix/wrangler-config` | `fix: add wrangler.jsonc so Cloudflare branch builds can find the assets` | 补 04 | [x]（04 完成后才发现的坑，见下方备注） |
 | #4 | `feat/auth` | `feat: magic link sign-in` | 06 | [x] |
 | #5 | `feat/entries` | `feat: record entries and wallet balances` | 07 | [x] |
-| #6 | `ci/keepalive` | `ci: keep supabase project awake` | 08 | [ ] |
+| #6 | `ci/keepalive` | `ci: keep supabase project awake` | 08 | [x]（加上排查用的 `fix/keepalive-logging`、`fix/keepalive-endpoint` 两个小 PR，见下方备注） |
 
 ---
 
@@ -134,6 +134,17 @@ Add wallet）→ 记一笔（AddEntry）→ 首页按钱包切换看余额和最
 已经补进 Day 2 清单（"邀请家人加入行程"），Day 2 结束前必须做完，
 不然"家人能实时看到"这个 Day 2 目标根本无从谈起。
 
-下一步：Day 1 步骤 8，防休眠定时任务（GitHub Actions）。
+**步骤 8 完成并验证**：`.github/workflows/keepalive.yml` 每 3 天自动 ping 一次，手动
+触发（Run workflow）确认跑绿。排查过程中踩了一个坑：一开始 ping 的是 `/rest/v1/trips`
+这张表，被 anon 零权限的设计（步骤 5 故意这样做）正常拦下来，报 "permission denied for
+table trips"——这其实证明权限设计是对的，只是敲错了门。改成 ping Supabase 自己的
+`/auth/v1/health` 健康检查接口，不涉及任何一张表的权限，问题解决。
+
+**🎉 Day 1 全部 8 个步骤完成。** 现在能：登录（Magic Link）→ 建行程 → 加钱包 → 记一笔
+→ 看余额和最近记录，数据全部存在 Supabase，刷新不丢。部署链路（push → Cloudflare 自动
+构建发布）和数据库防休眠都已跑通。
+
+下一步：Day 2——多钱包换汇、收据、修改删除与变更记录、实时同步、评论、Google 登录、
+PWA 安装引导、邀请家人加入行程。
 
 *最后更新：2026-08-25*
