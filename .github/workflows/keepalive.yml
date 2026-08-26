@@ -11,6 +11,14 @@ jobs:
     steps:
       - name: Ping Supabase REST API
         run: |
-          curl -sf "${{ secrets.SUPABASE_URL }}/rest/v1/trips?select=id&limit=1" \
+          response=$(curl -s -w "\n%{http_code}" "${{ secrets.SUPABASE_URL }}/rest/v1/trips?select=id&limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+          status="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          echo "HTTP status: $status"
+          echo "Response body: $body"
+          if [ "$status" -ge 400 ]; then
+            echo "::error::Keepalive ping failed with status $status"
+            exit 1
+          fi
