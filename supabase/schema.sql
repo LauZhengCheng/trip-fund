@@ -122,7 +122,9 @@ create table entries (
   category text,
   note text,
   occurred_at timestamptz not null default now(),
-  paired_entry_id uuid references entries(id),
+  -- deferrable：换汇/转账两条腿互相引用对方的 id，两条都插完才检查这个约束，
+  -- 不然谁先插谁就会因为"对方还不存在"报错（先有鸡先有蛋）。
+  paired_entry_id uuid references entries(id) deferrable initially deferred,
   created_by uuid not null references auth.users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -152,6 +154,10 @@ create table entry_history (
 
 alter table entry_history enable row level security;
 
+-- reason 从 trip_fund.edit_reason 这个"当前事务局部变量"里读——
+-- 三个 update_entry_fields/soft_delete_entry/restore_entry 函数会在真正
+-- update 之前先把这次的理由塞进这个变量，触发器读到了就存下来。
+-- 直接对 entries 做 update（不走这三个函数）也完全能用，只是 reason 会是空的。
 create or replace function log_entry_change()
 returns trigger
 language plpgsql
@@ -164,13 +170,15 @@ begin
     values (new.id, new.trip_id, 'insert', null, to_jsonb(new), auth.uid());
     return new;
   elsif tg_op = 'UPDATE' then
-    insert into entry_history (entry_id, trip_id, action, before, after, changed_by)
+    insert into entry_history (entry_id, trip_id, action, before, after, reason, changed_by)
     values (
       new.id, new.trip_id,
       case when new.deleted_at is not null and old.deleted_at is null then 'delete'
            when new.deleted_at is null and old.deleted_at is not null then 'restore'
            else 'update' end,
-      to_jsonb(old), to_jsonb(new), auth.uid()
+      to_jsonb(old), to_jsonb(new),
+      nullif(current_setting('trip_fund.edit_reason', true), ''),
+      auth.uid()
     );
     return new;
   end if;
@@ -181,6 +189,144 @@ $$;
 create trigger on_entry_change
   after insert or update on entries
   for each row execute function log_entry_change();
+
+-- ============================================================
+-- 改一笔 / 软删除 / 还原 —— 都不用 SECURITY DEFINER，
+-- 就用调用者本人的权限跑那句 update，所以还是要过 entries_update 那条 RLS 规则，
+-- 不会因为多了这几个函数就让权限变松。
+-- 这三个函数存在的唯一理由：把"这次为什么改"这句话，跟真正的 update 打包在
+-- 同一个事务里一起做，好让触发器读到、存进 entry_history.reason。
+-- ============================================================
+create or replace function update_entry_fields(
+  p_entry_id uuid,
+  p_amount_minor bigint,
+  p_category text,
+  p_note text,
+  p_occurred_at timestamptz,
+  p_reason text default null
+)
+returns entries
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_entry entries;
+begin
+  perform set_config('trip_fund.edit_reason', coalesce(p_reason, ''), true);
+
+  update entries
+  set amount_minor = p_amount_minor,
+      category = p_category,
+      note = p_note,
+      occurred_at = p_occurred_at,
+      updated_at = now()
+  where id = p_entry_id
+  returning * into v_entry;
+
+  if not found then
+    raise exception 'Entry not found, or you do not have permission to edit it';
+  end if;
+
+  return v_entry;
+end;
+$$;
+
+-- 软删除/还原会连带处理配对的那一条（换汇/转账两条腿是同一件事，
+-- 只删一条会留下算不对账的孤儿记录）。
+create or replace function soft_delete_entry(p_entry_id uuid, p_reason text default null)
+returns entries
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_entry entries;
+begin
+  perform set_config('trip_fund.edit_reason', coalesce(p_reason, ''), true);
+
+  update entries
+  set deleted_at = now()
+  where id = p_entry_id
+  returning * into v_entry;
+
+  if not found then
+    raise exception 'Entry not found, or you do not have permission to delete it';
+  end if;
+
+  if v_entry.paired_entry_id is not null then
+    update entries
+    set deleted_at = now()
+    where id = v_entry.paired_entry_id and deleted_at is null;
+  end if;
+
+  return v_entry;
+end;
+$$;
+
+create or replace function restore_entry(p_entry_id uuid, p_reason text default null)
+returns entries
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_entry entries;
+begin
+  perform set_config('trip_fund.edit_reason', coalesce(p_reason, ''), true);
+
+  update entries
+  set deleted_at = null
+  where id = p_entry_id
+  returning * into v_entry;
+
+  if not found then
+    raise exception 'Entry not found, or you do not have permission to restore it';
+  end if;
+
+  if v_entry.paired_entry_id is not null then
+    update entries
+    set deleted_at = null
+    where id = v_entry.paired_entry_id and deleted_at is not null;
+  end if;
+
+  return v_entry;
+end;
+$$;
+
+-- ============================================================
+-- create_transfer() —— 换汇 / 同币种转账，一次性建两条互相关联的记录
+-- p_from_type/p_to_type 由前端决定传 'transfer_out'/'transfer_in'（同币种）
+-- 还是 'fx_out'/'fx_in'（换汇，带 fx_rate）。两条一起插，靠上面那个
+-- deferrable 约束才能互相引用对方的 id。
+-- ============================================================
+create or replace function create_transfer(
+  p_trip_id uuid,
+  p_from_wallet_id uuid,
+  p_to_wallet_id uuid,
+  p_from_amount_minor bigint,
+  p_to_amount_minor bigint,
+  p_from_type text,
+  p_to_type text,
+  p_fx_rate numeric,
+  p_category text,
+  p_note text,
+  p_occurred_at timestamptz
+)
+returns table(out_id uuid, in_id uuid)
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_out_id uuid := gen_random_uuid();
+  v_in_id uuid := gen_random_uuid();
+begin
+  insert into entries
+    (id, trip_id, wallet_id, type, amount_minor, fx_rate, category, note, occurred_at, paired_entry_id, created_by)
+  values
+    (v_out_id, p_trip_id, p_from_wallet_id, p_from_type, p_from_amount_minor, p_fx_rate, p_category, p_note, p_occurred_at, v_in_id, auth.uid()),
+    (v_in_id, p_trip_id, p_to_wallet_id, p_to_type, p_to_amount_minor, p_fx_rate, p_category, p_note, p_occurred_at, v_out_id, auth.uid());
+
+  return query select v_out_id, v_in_id;
+end;
+$$;
 
 -- ============================================================
 -- 6. receipts —— 收据照片
@@ -383,3 +529,7 @@ create policy "trip_invites_admin_manage" on trip_invites
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant execute on function accept_invite(uuid) to authenticated;
+grant execute on function update_entry_fields(uuid, bigint, text, text, timestamptz, text) to authenticated;
+grant execute on function soft_delete_entry(uuid, text) to authenticated;
+grant execute on function restore_entry(uuid, text) to authenticated;
+grant execute on function create_transfer(uuid, uuid, uuid, bigint, bigint, text, text, numeric, text, text, timestamptz) to authenticated;

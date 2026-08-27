@@ -11,9 +11,19 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: '印尼行程公款账本',
+        name: 'Trip Fund',
         short_name: 'Trip Fund',
-        theme_color: '#ffffff',
+        description: 'Family trip fund ledger',
+        theme_color: '#171717',
+        background_color: '#fafaf9',
+        icons: [
+          {
+            src: 'favicon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any',
+          },
+        ],
       },
     }),
   ],

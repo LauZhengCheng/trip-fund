@@ -2,14 +2,15 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Avatar } from '../components/Avatar'
 import { EntryList } from '../components/EntryList'
 import { useAuth } from '../lib/auth'
-import { listEntries, type Entry } from '../lib/entries'
+import { listDeletedEntries, listEntries, subscribeToEntryChanges, type Entry } from '../lib/entries'
 import { errorMessage } from '../lib/errors'
 import { createInviteLink } from '../lib/invites'
 import { getMyRoleLevel } from '../lib/members'
 import { formatMinorUnits, computeBalance } from '../lib/money'
 import type { Trip } from '../lib/trips'
-import { createWallet, listWallets, type Wallet } from '../lib/wallets'
+import { createWallet, listWallets, subscribeToWalletChanges, type Wallet } from '../lib/wallets'
 import { AddEntry } from './AddEntry'
+import { EntryDetail } from './EntryDetail'
 
 const CURRENCY_SYMBOLS: Record<string, string> = { MYR: 'RM', IDR: 'Rp' }
 const ADMIN_LEVEL = 2
@@ -22,6 +23,8 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   const [showAddWallet, setShowAddWallet] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
+  const [showRecycleBin, setShowRecycleBin] = useState(false)
+  const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null)
 
   const isAdmin = roleLevel >= ADMIN_LEVEL
 
@@ -42,6 +45,8 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
     reloadWallets()
   }, [reloadWallets])
 
+  useEffect(() => subscribeToWalletChanges(trip.id, reloadWallets), [trip.id, reloadWallets])
+
   const reloadEntries = useCallback(async () => {
     if (!activeWalletId) {
       setEntries([])
@@ -53,6 +58,11 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   useEffect(() => {
     reloadEntries()
   }, [reloadEntries])
+
+  useEffect(() => {
+    if (!activeWalletId) return
+    return subscribeToEntryChanges(activeWalletId, reloadEntries)
+  }, [activeWalletId, reloadEntries])
 
   const activeWallet = wallets?.find((w) => w.id === activeWalletId) ?? null
   const balance = computeBalance(entries)
@@ -125,6 +135,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
             walletLabel={activeWallet.label}
             currency={activeWallet.currency}
             exponent={activeWallet.exponent}
+            onSelect={setSelectedEntry}
           />
         </div>
       )}
@@ -139,12 +150,10 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
       )}
 
       {isAdmin && wallets && wallets.length > 0 && (
-        <button
-          onClick={() => setShowAddWallet(true)}
-          className="fixed left-5 bottom-8 text-xs text-neutral-400 underline"
-        >
-          + wallet
-        </button>
+        <div className="fixed left-5 bottom-8 flex gap-3 text-xs text-neutral-400 underline">
+          <button onClick={() => setShowAddWallet(true)}>+ wallet</button>
+          <button onClick={() => setShowRecycleBin(true)}>Recycle bin</button>
+        </div>
       )}
 
       {isAdmin && showAddWallet && (
@@ -157,10 +166,11 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         />
       )}
 
-      {isAdmin && showAddEntry && activeWallet && (
+      {isAdmin && showAddEntry && activeWallet && wallets && (
         <AddEntry
           tripId={trip.id}
-          wallet={activeWallet}
+          wallets={wallets}
+          defaultWalletId={activeWallet.id}
           onDone={() => {
             setShowAddEntry(false)
             reloadEntries()
@@ -169,6 +179,67 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
       )}
 
       {isAdmin && showInvite && <InviteLink tripId={trip.id} onDone={() => setShowInvite(false)} />}
+
+      {isAdmin && showRecycleBin && activeWallet && (
+        <RecycleBin
+          wallet={activeWallet}
+          onClose={() => setShowRecycleBin(false)}
+          onSelect={(entry) => {
+            setShowRecycleBin(false)
+            setSelectedEntry(entry)
+          }}
+        />
+      )}
+
+      {selectedEntry && activeWallet && (
+        <EntryDetail
+          entry={selectedEntry}
+          wallet={activeWallet}
+          isAdmin={isAdmin}
+          onClose={() => setSelectedEntry(null)}
+          onChanged={reloadEntries}
+        />
+      )}
+    </div>
+  )
+}
+
+function RecycleBin({
+  wallet,
+  onClose,
+  onSelect,
+}: {
+  wallet: Wallet
+  onClose: () => void
+  onSelect: (entry: Entry) => void
+}) {
+  const [deleted, setDeleted] = useState<Entry[] | null>(null)
+
+  useEffect(() => {
+    listDeletedEntries(wallet.id).then(setDeleted)
+  }, [wallet.id])
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4">
+      <div className="mx-auto max-w-sm space-y-4 rounded-2xl bg-white p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Recycle bin — {wallet.label}</h2>
+          <button onClick={onClose} className="text-sm text-neutral-400">
+            Close
+          </button>
+        </div>
+        {deleted === null && <p className="text-sm text-neutral-400">Loading…</p>}
+        {deleted?.length === 0 && <p className="text-sm text-neutral-400">Nothing here.</p>}
+        {deleted && deleted.length > 0 && (
+          <EntryList
+            entries={deleted}
+            walletLabel={wallet.label}
+            currency={wallet.currency}
+            exponent={wallet.exponent}
+            onSelect={onSelect}
+          />
+        )}
+      </div>
     </div>
   )
 }

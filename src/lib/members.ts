@@ -6,3 +6,18 @@ export async function getMyRoleLevel(tripId: string): Promise<number> {
   if (error) throw error
   return (data as number) ?? 0
 }
+
+export type Member = {
+  user_id: string
+  display_name: string
+  role: string
+}
+
+export async function listMembers(tripId: string): Promise<Member[]> {
+  const { data, error } = await supabase
+    .from('members')
+    .select('user_id, display_name, role')
+    .eq('trip_id', tripId)
+  if (error) throw error
+  return data
+}

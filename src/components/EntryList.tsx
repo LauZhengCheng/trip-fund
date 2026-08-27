@@ -17,11 +17,13 @@ export function EntryList({
   walletLabel,
   currency,
   exponent,
+  onSelect,
 }: {
   entries: Entry[]
   walletLabel: string
   currency: string
   exponent: number
+  onSelect?: (entry: Entry) => void
 }) {
   if (entries.length === 0) {
     return <p className="py-6 text-center text-sm text-neutral-400">No entries yet.</p>
@@ -35,9 +37,11 @@ export function EntryList({
         const positive = isPositiveType(entry.type)
         const edited = entry.updated_at !== entry.created_at
         return (
-          <div
+          <button
             key={entry.id}
-            className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-3"
+            type="button"
+            onClick={() => onSelect?.(entry)}
+            className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
@@ -62,7 +66,7 @@ export function EntryList({
               {positive ? '+' : '−'}
               {symbol} {formatMinorUnits(entry.amount_minor, exponent)}
             </p>
-          </div>
+          </button>
         )
       })}
     </div>
