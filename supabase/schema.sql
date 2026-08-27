@@ -343,6 +343,33 @@ create table receipts (
 alter table receipts enable row level security;
 
 -- ============================================================
+-- 收据文件本体存在 Storage 的 receipts 这个 bucket 里（私有，不公开），
+-- 路径规定为 <trip_id>/<entry_id>/<文件名>，这样才能用 role_level() 按
+-- 路径第一段（trip_id）判断权限——跟其他表用同一套权限判断逻辑。
+-- ============================================================
+insert into storage.buckets (id, name, public)
+values ('receipts', 'receipts', false)
+on conflict (id) do nothing;
+
+create policy "receipts_storage_select" on storage.objects
+  for select using (
+    bucket_id = 'receipts'
+    and role_level((storage.foldername(name))[1]::uuid) >= 1
+  );
+
+create policy "receipts_storage_insert" on storage.objects
+  for insert with check (
+    bucket_id = 'receipts'
+    and role_level((storage.foldername(name))[1]::uuid) >= 2
+  );
+
+create policy "receipts_storage_delete" on storage.objects
+  for delete using (
+    bucket_id = 'receipts'
+    and role_level((storage.foldername(name))[1]::uuid) >= 2
+  );
+
+-- ============================================================
 -- 7. comments —— 家人的提问与回复
 -- ============================================================
 create table comments (

@@ -56,7 +56,10 @@
       币种相同是 transfer_out/in，不同是 fx_out/in（带汇率，自动预填上次用过的汇率）。
       两条记录用新函数 `create_transfer()` 一次性建好、互相关联（`paired_entry_id`
       改成了 deferrable 外键，不然两条互相引用谁先插都会报错）。
-- [ ] 收据拍照上传（Supabase Storage）—— 还没做，需要先在 Supabase 建 Storage bucket
+- [x] 收据拍照上传（2026-08-27）—— Storage bucket `receipts`（私有）连 policy 都用 SQL
+      一次建好，不用去网页点。存储路径是 `<trip_id>/<entry_id>/文件名`，这样才能用
+      `role_level()` 判断权限，跟其他表统一逻辑。图片私有，前端用"签名网址"（1 小时
+      有效期）显示，不是公开链接。
 - [x] 修改 / 删除（含回收站 + `entry_history` 自动留痕 + 变更记录 UI）（2026-08-27）
       —— 新增 `update_entry_fields()`/`soft_delete_entry()`/`restore_entry()` 三个函数，
       改动原因会存进 `entry_history.reason`；软删除/还原会连带处理换汇/转账的配对记录，
@@ -65,8 +68,10 @@
       任何人改动，其他人打开的页面会自动刷新，不用手动 F5。
 - [x] 每笔评论 / 提问（2026-08-27）—— 在 `EntryDetail.tsx` 里，member 也能发（这是
       member 唯一能写的地方），自己发的和 admin 都能删。
-- [ ] Google 登录（先去 Google Cloud Console 建 OAuth 应用）—— 还没做，需要 Zachary
-      去 Google Cloud Console 建应用拿密钥
+- [~] Google 登录（2026-08-27）—— 前端代码（Login 页的按钮、`signInWithGoogle()`）
+      已经写好，摆在 Magic Link 上面（主推 Google，符合 ARCHITECTURE.md 的设计）。
+      **还差 Zachary 去 Google Cloud Console 建 OAuth 应用、把 Client ID/Secret
+      填进 Supabase 才能真的用**，这一步没法用代码代劳。
 - [x] PWA 安装引导（2026-08-27）—— 加了 `InstallPrompt.tsx`：iOS 显示"用 Safari 加到
       主画面"的文字提示（iOS 没有自动弹窗这个 API），Android/桌面 Chrome 用系统自带的
       安装弹窗。顺手发现 PWA manifest 之前完全没配图标（装不成、Chrome 的安装按钮可能
