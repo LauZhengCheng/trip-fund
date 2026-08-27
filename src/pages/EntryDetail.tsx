@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
 import { createComment, deleteComment, listComments, subscribeToComments, type Comment } from '../lib/comments'
 import {
@@ -11,6 +11,7 @@ import { errorMessage } from '../lib/errors'
 import { listEntryHistory, type EntryHistoryRow } from '../lib/history'
 import { listMembers, type Member } from '../lib/members'
 import { formatMinorUnits, isPositiveType, toMinorUnits } from '../lib/money'
+import { deleteReceipt, listReceipts, uploadReceipt, type Receipt } from '../lib/receipts'
 import type { Wallet } from '../lib/wallets'
 
 const CURRENCY_SYMBOLS: Record<string, string> = { MYR: 'RM', IDR: 'Rp' }
@@ -70,6 +71,8 @@ export function EntryDetail({
   const [comments, setComments] = useState<Comment[]>([])
   const [commentBody, setCommentBody] = useState('')
   const [postingComment, setPostingComment] = useState(false)
+  const [receipts, setReceipts] = useState<Receipt[]>([])
+  const [uploadingReceipt, setUploadingReceipt] = useState(false)
   const [mode, setMode] = useState<'view' | 'edit' | 'delete' | 'restore'>('view')
   const [error, setError] = useState('')
 
@@ -90,6 +93,37 @@ export function EntryDetail({
   useEffect(reloadComments, [entry.id])
 
   useEffect(() => subscribeToComments(entry.id, reloadComments), [entry.id])
+
+  function reloadReceipts() {
+    listReceipts(entry.id).then(setReceipts).catch((err) => setError(errorMessage(err)))
+  }
+
+  useEffect(reloadReceipts, [entry.id])
+
+  async function handleUploadReceipt(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !user) return
+    setUploadingReceipt(true)
+    setError('')
+    try {
+      await uploadReceipt({ tripId: entry.trip_id, entryId: entry.id, uploadedBy: user.id, file })
+      reloadReceipts()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setUploadingReceipt(false)
+    }
+  }
+
+  async function handleDeleteReceipt(receipt: Receipt) {
+    try {
+      await deleteReceipt(receipt.id, receipt.storage_path)
+      reloadReceipts()
+    } catch (err) {
+      setError(errorMessage(err))
+    }
+  }
 
   async function handlePostComment(e: FormEvent) {
     e.preventDefault()
@@ -167,6 +201,49 @@ export function EntryDetail({
           <Row label="Date" value={new Date(entry.occurred_at).toLocaleString()} />
           <Row label="Wallet" value={wallet.label} />
           {entry.deleted_at && <Row label="Status" value="Deleted (in recycle bin)" />}
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-bold tracking-wide text-neutral-400">RECEIPTS</p>
+          {receipts.length === 0 && <p className="text-sm text-neutral-400">No receipts yet.</p>}
+          {receipts.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {receipts.map((r) => (
+                <div key={r.id} className="relative">
+                  {r.url && (
+                    <a href={r.url} target="_blank" rel="noreferrer">
+                      <img
+                        src={r.url}
+                        alt="Receipt"
+                        className="h-20 w-20 rounded-lg border border-neutral-200 object-cover"
+                      />
+                    </a>
+                  )}
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDeleteReceipt(r)}
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 text-xs text-white"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {isAdmin && (
+            <label className="mt-2 inline-block cursor-pointer rounded-lg bg-neutral-100 px-3 py-2 text-xs font-medium text-neutral-600">
+              {uploadingReceipt ? 'Uploading…' : '+ Add receipt photo'}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleUploadReceipt}
+                disabled={uploadingReceipt}
+                className="hidden"
+              />
+            </label>
+          )}
         </div>
 
         {isAdmin && !entry.deleted_at && mode === 'view' && (

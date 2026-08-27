@@ -6,6 +6,7 @@ type AuthContextValue = {
   user: User | null
   loading: boolean
   signInWithEmail: (email: string) => Promise<{ error: string | null }>
+  signInWithGoogle: () => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
 
@@ -39,12 +40,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null }
   }
 
+  async function signInWithGoogle() {
+    // Same reasoning as above: keep whatever URL (including ?invite=...) the
+    // user was on so the round trip through Google's consent screen preserves it.
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.href },
+    })
+    return { error: error?.message ?? null }
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
   }
 
   return (
-    <AuthContext.Provider value={{ user: session?.user ?? null, loading, signInWithEmail, signOut }}>
+    <AuthContext.Provider
+      value={{ user: session?.user ?? null, loading, signInWithEmail, signInWithGoogle, signOut }}
+    >
       {children}
     </AuthContext.Provider>
   )
