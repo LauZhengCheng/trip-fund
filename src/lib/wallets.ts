@@ -36,3 +36,18 @@ export async function createWallet(
   })
   if (error) throw error
 }
+
+export function subscribeToWalletChanges(tripId: string, onChange: () => void): () => void {
+  const channel = supabase
+    .channel(`wallets-trip-${tripId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'wallets', filter: `trip_id=eq.${tripId}` },
+      onChange,
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}

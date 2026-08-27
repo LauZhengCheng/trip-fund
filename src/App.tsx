@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { InstallPrompt } from './components/InstallPrompt'
 import { AuthProvider, useAuth } from './lib/auth'
 import { errorMessage } from './lib/errors'
 import { acceptInvite } from './lib/invites'
@@ -32,15 +33,20 @@ function AppContent() {
     return <div className="flex min-h-screen items-center justify-center text-neutral-500">Loading…</div>
   }
 
-  if (!user) {
-    return <Login />
-  }
+  const page = !user ? (
+    <Login />
+  ) : !activeTrip ? (
+    <TripList onSelect={setActiveTrip} bannerError={inviteError} />
+  ) : (
+    <Home trip={activeTrip} onBack={() => setActiveTrip(null)} />
+  )
 
-  if (!activeTrip) {
-    return <TripList onSelect={setActiveTrip} bannerError={inviteError} />
-  }
-
-  return <Home trip={activeTrip} onBack={() => setActiveTrip(null)} />
+  return (
+    <>
+      {page}
+      <InstallPrompt />
+    </>
+  )
 }
 
 function App() {
