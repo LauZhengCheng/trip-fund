@@ -121,6 +121,12 @@ create table entries (
   fx_rate numeric,
   category text,
   note text,
+  -- 出资（contribution）要记"是谁给的"，才能算结算（每个人一共出了多少）。
+  -- 两种存法都留：contributor_id 指向一个真正的 member（优先，能可靠地按人加总）；
+  -- 那个人还没加入这本账时，先用 contributor_name 打字记着，等他真的加入了，
+  -- 编辑这笔账把 contributor_id 换成真人、contributor_name 清空即可。
+  contributor_id uuid references members(id),
+  contributor_name text,
   occurred_at timestamptz not null default now(),
   -- deferrable：换汇/转账两条腿互相引用对方的 id，两条都插完才检查这个约束，
   -- 不然谁先插谁就会因为"对方还不存在"报错（先有鸡先有蛋）。
@@ -128,7 +134,9 @@ create table entries (
   created_by uuid not null references auth.users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  deleted_at timestamptz
+  deleted_at timestamptz,
+  constraint entries_contribution_has_contributor
+    check (type <> 'contribution' or contributor_id is not null or contributor_name is not null)
 );
 
 alter table entries enable row level security;
@@ -197,12 +205,18 @@ create trigger on_entry_change
 -- 这三个函数存在的唯一理由：把"这次为什么改"这句话，跟真正的 update 打包在
 -- 同一个事务里一起做，好让触发器读到、存进 entry_history.reason。
 -- ============================================================
+-- 签名变了（多了 contributor 两个参数），旧版本得先删掉再建新的——
+-- Postgres 的 create or replace 不允许直接改参数列表。
+drop function if exists update_entry_fields(uuid, bigint, text, text, timestamptz, text);
+
 create or replace function update_entry_fields(
   p_entry_id uuid,
   p_amount_minor bigint,
   p_category text,
   p_note text,
   p_occurred_at timestamptz,
+  p_contributor_id uuid default null,
+  p_contributor_name text default null,
   p_reason text default null
 )
 returns entries
@@ -219,6 +233,8 @@ begin
       category = p_category,
       note = p_note,
       occurred_at = p_occurred_at,
+      contributor_id = p_contributor_id,
+      contributor_name = p_contributor_name,
       updated_at = now()
   where id = p_entry_id
   returning * into v_entry;
@@ -556,7 +572,7 @@ create policy "trip_invites_admin_manage" on trip_invites
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant execute on function accept_invite(uuid) to authenticated;
-grant execute on function update_entry_fields(uuid, bigint, text, text, timestamptz, text) to authenticated;
+grant execute on function update_entry_fields(uuid, bigint, text, text, timestamptz, uuid, text, text) to authenticated;
 grant execute on function soft_delete_entry(uuid, text) to authenticated;
 grant execute on function restore_entry(uuid, text) to authenticated;
 grant execute on function create_transfer(uuid, uuid, uuid, bigint, bigint, text, text, numeric, text, text, timestamptz) to authenticated;
