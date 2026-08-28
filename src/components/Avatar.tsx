@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useAuth } from '../lib/auth'
 
 /**
@@ -5,21 +6,25 @@ import { useAuth } from '../lib/auth'
  * device. Falls back to an initial-letter circle for Magic Link (no photo);
  * once Google login lands, user_metadata.avatar_url is populated by Supabase
  * automatically and this switches to the real Google avatar with no code change.
+ * Also falls back to the letter circle if the photo URL fails to load.
  */
 export function Avatar() {
   const { user } = useAuth()
+  const [imgFailed, setImgFailed] = useState(false)
   if (!user) return null
 
   const avatarUrl = user.user_metadata?.avatar_url as string | undefined
   const label = (user.user_metadata?.full_name as string | undefined) || user.email || '?'
   const initial = label.charAt(0).toUpperCase()
 
-  if (avatarUrl) {
+  if (avatarUrl && !imgFailed) {
     return (
       <img
         src={avatarUrl}
         alt={label}
         title={user.email ?? undefined}
+        referrerPolicy="no-referrer"
+        onError={() => setImgFailed(true)}
         className="h-8 w-8 shrink-0 rounded-full object-cover"
       />
     )
