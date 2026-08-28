@@ -26,12 +26,20 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   const [showMembers, setShowMembers] = useState(false)
   const [showRecycleBin, setShowRecycleBin] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null)
+  const [members, setMembers] = useState<Member[]>([])
 
   const isAdmin = roleLevel >= ADMIN_LEVEL
 
   useEffect(() => {
     getMyRoleLevel(trip.id).then(setRoleLevel)
   }, [trip.id])
+
+  const reloadMembers = useCallback(() => {
+    listMembers(trip.id).then(setMembers)
+  }, [trip.id])
+
+  useEffect(reloadMembers, [reloadMembers])
+  useEffect(() => subscribeToMemberChanges(trip.id, reloadMembers), [trip.id, reloadMembers])
 
   const reloadWallets = useCallback(async () => {
     const list = await listWallets(trip.id)
@@ -139,6 +147,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
             walletLabel={activeWallet.label}
             currency={activeWallet.currency}
             exponent={activeWallet.exponent}
+            members={members}
             onSelect={setSelectedEntry}
           />
         </div>
@@ -189,6 +198,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
       {isAdmin && showRecycleBin && activeWallet && (
         <RecycleBin
           wallet={activeWallet}
+          members={members}
           onClose={() => setShowRecycleBin(false)}
           onSelect={(entry) => {
             setShowRecycleBin(false)
@@ -212,10 +222,12 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
 
 function RecycleBin({
   wallet,
+  members,
   onClose,
   onSelect,
 }: {
   wallet: Wallet
+  members: Member[]
   onClose: () => void
   onSelect: (entry: Entry) => void
 }) {
@@ -242,6 +254,7 @@ function RecycleBin({
             walletLabel={wallet.label}
             currency={wallet.currency}
             exponent={wallet.exponent}
+            members={members}
             onSelect={onSelect}
           />
         )}

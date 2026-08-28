@@ -21,7 +21,12 @@ function amountText(amountMinor: number, entry: Entry, wallet: Wallet) {
   return `${isPositiveType(entry.type) ? '+' : '−'}${symbol} ${formatMinorUnits(amountMinor, wallet.exponent)}`
 }
 
-function describeChanges(before: Record<string, unknown>, after: Record<string, unknown>, wallet: Wallet): string[] {
+function describeChanges(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  wallet: Wallet,
+  members: Member[],
+): string[] {
   const lines: string[] = []
   if (before.amount_minor !== after.amount_minor) {
     const symbol = CURRENCY_SYMBOLS[wallet.currency] ?? wallet.currency
@@ -35,12 +40,29 @@ function describeChanges(before: Record<string, unknown>, after: Record<string, 
   if (before.note !== after.note) {
     lines.push(`Note: ${(before.note as string) || '—'} → ${(after.note as string) || '—'}`)
   }
+  if (before.contributor_id !== after.contributor_id || before.contributor_name !== after.contributor_name) {
+    const label = (id: unknown, name: unknown) =>
+      (id && members.find((m) => m.id === id)?.display_name) || (name as string) || '—'
+    lines.push(
+      `Contributor: ${label(before.contributor_id, before.contributor_name)} → ${label(after.contributor_id, after.contributor_name)}`,
+    )
+  }
   if (before.occurred_at !== after.occurred_at) {
     lines.push(
       `Date: ${new Date(before.occurred_at as string).toLocaleString()} → ${new Date(after.occurred_at as string).toLocaleString()}`,
     )
   }
   return lines
+}
+
+function contributorLabel(entry: Entry, members: Member[]): string | null {
+  if (entry.contributor_id) {
+    return members.find((m) => m.id === entry.contributor_id)?.display_name ?? 'Someone'
+  }
+  if (entry.contributor_name) {
+    return `${entry.contributor_name} (not in the app yet)`
+  }
+  return null
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -163,6 +185,7 @@ export function EntryDetail({
       <EditEntryForm
         entry={entry}
         wallet={wallet}
+        members={members}
         onCancel={() => setMode('view')}
         onSaved={() => {
           setMode('view')
@@ -188,7 +211,11 @@ export function EntryDetail({
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4">
       <div className="mx-auto max-w-sm space-y-4 rounded-2xl bg-white p-5">
         <div className="flex items-start justify-between gap-4">
-          <h2 className="text-lg font-semibold">{entry.note || entry.category || entry.type}</h2>
+          <h2 className="text-lg font-semibold">
+            {entry.type === 'contribution'
+              ? `Contribution — ${contributorLabel(entry, members) ?? 'Unknown'}`
+              : entry.note || entry.category || entry.type}
+          </h2>
           <button onClick={onClose} className="shrink-0 text-sm text-neutral-400">
             Close
           </button>
@@ -197,7 +224,11 @@ export function EntryDetail({
         <div className="space-y-1.5 rounded-xl bg-neutral-50 p-3">
           <Row label="Amount" value={amountText(entry.amount_minor, entry, wallet)} />
           <Row label="Type" value={entry.type} />
-          <Row label="Category" value={entry.category || '—'} />
+          {entry.type === 'contribution' ? (
+            <Row label="Contributor" value={contributorLabel(entry, members) ?? '—'} />
+          ) : (
+            <Row label="Category" value={entry.category || '—'} />
+          )}
           <Row label="Date" value={new Date(entry.occurred_at).toLocaleString()} />
           <Row label="Wallet" value={wallet.label} />
           {entry.deleted_at && <Row label="Status" value="Deleted (in recycle bin)" />}
@@ -237,7 +268,6 @@ export function EntryDetail({
               <input
                 type="file"
                 accept="image/*"
-                capture="environment"
                 onChange={handleUploadReceipt}
                 disabled={uploadingReceipt}
                 className="hidden"
@@ -297,7 +327,7 @@ export function EntryDetail({
                 {h.action === 'update' &&
                   h.before &&
                   h.after &&
-                  describeChanges(h.before, h.after, wallet).map((line, i) => (
+                  describeChanges(h.before, h.after, wallet, members).map((line, i) => (
                     <p key={i} className="text-sm text-neutral-700">
                       {line}
                     </p>
@@ -402,20 +432,29 @@ function ReasonPrompt({
   )
 }
 
+const OTHER_CONTRIBUTOR = '__other__'
+
 function EditEntryForm({
   entry,
   wallet,
+  members,
   onCancel,
   onSaved,
 }: {
   entry: Entry
   wallet: Wallet
+  members: Member[]
   onCancel: () => void
   onSaved: () => void
 }) {
+  const isContribution = entry.type === 'contribution'
   const [amount, setAmount] = useState(String(entry.amount_minor / 10 ** wallet.exponent))
   const [category, setCategory] = useState(entry.category ?? '')
   const [note, setNote] = useState(entry.note ?? '')
+  const [contributorChoice, setContributorChoice] = useState(
+    entry.contributor_id ?? (entry.contributor_name ? OTHER_CONTRIBUTOR : ''),
+  )
+  const [contributorName, setContributorName] = useState(entry.contributor_name ?? '')
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -425,11 +464,21 @@ function EditEntryForm({
     setSubmitting(true)
     setError('')
     try {
+      const isOther = contributorChoice === OTHER_CONTRIBUTOR
+      if (isContribution && !contributorChoice) {
+        throw new Error('Pick who this contribution is from')
+      }
+      if (isContribution && isOther && !contributorName.trim()) {
+        throw new Error("Type the contributor's name")
+      }
+
       await updateEntryFields({
         entryId: entry.id,
         amountMinor: toMinorUnits(Number(amount), wallet.exponent),
-        category: category.trim() || null,
+        category: isContribution ? null : category.trim() || null,
         note: note.trim() || null,
+        contributorId: isContribution ? (isOther ? null : contributorChoice) : null,
+        contributorName: isContribution ? (isOther ? contributorName.trim() : null) : null,
         occurredAt: entry.occurred_at,
         reason: reason.trim() || null,
       })
@@ -462,17 +511,49 @@ function EditEntryForm({
           />
         </div>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-500">
-            Category <span className="font-normal text-neutral-400">(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2"
-          />
-        </div>
+        {isContribution ? (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Contributor</label>
+            <select
+              required
+              value={contributorChoice}
+              onChange={(e) => setContributorChoice(e.target.value)}
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+            >
+              <option value="" disabled>
+                Who gave this money?
+              </option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.display_name}
+                </option>
+              ))}
+              <option value={OTHER_CONTRIBUTOR}>Someone not in the app yet…</option>
+            </select>
+            {contributorChoice === OTHER_CONTRIBUTOR && (
+              <input
+                type="text"
+                required
+                placeholder="Their name"
+                value={contributorName}
+                onChange={(e) => setContributorName(e.target.value)}
+                className="mt-2 w-full rounded-lg border border-neutral-300 px-3 py-2"
+              />
+            )}
+          </div>
+        ) : (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">
+              Category <span className="font-normal text-neutral-400">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+            />
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-xs font-medium text-neutral-500">

@@ -1,5 +1,6 @@
-import { supabase } from './supabase'
 import type { EntryType } from './money'
+import { uploadReceipt } from './receipts'
+import { supabase } from './supabase'
 
 export type Entry = {
   id: string
@@ -9,6 +10,8 @@ export type Entry = {
   amount_minor: number
   category: string | null
   note: string | null
+  contributor_id: string | null
+  contributor_name: string | null
   occurred_at: string
   created_at: string
   updated_at: string
@@ -33,21 +36,38 @@ export async function createEntry(input: {
   amountMinor: number
   category: string | null
   note: string | null
+  contributorId?: string | null
+  contributorName?: string | null
   occurredAt: string
   createdBy: string
-}) {
+  receiptFile?: File | null
+}): Promise<string> {
+  const id = crypto.randomUUID()
   const { error } = await supabase.from('entries').insert({
-    id: crypto.randomUUID(),
+    id,
     trip_id: input.tripId,
     wallet_id: input.walletId,
     type: input.type,
     amount_minor: input.amountMinor,
     category: input.category,
     note: input.note,
+    contributor_id: input.contributorId ?? null,
+    contributor_name: input.contributorName ?? null,
     occurred_at: input.occurredAt,
     created_by: input.createdBy,
   })
   if (error) throw error
+
+  if (input.receiptFile) {
+    await uploadReceipt({
+      tripId: input.tripId,
+      entryId: id,
+      uploadedBy: input.createdBy,
+      file: input.receiptFile,
+    })
+  }
+
+  return id
 }
 
 export async function listDeletedEntries(walletId: string): Promise<Entry[]> {
@@ -66,6 +86,8 @@ export async function updateEntryFields(input: {
   amountMinor: number
   category: string | null
   note: string | null
+  contributorId?: string | null
+  contributorName?: string | null
   occurredAt: string
   reason: string | null
 }): Promise<Entry> {
@@ -75,6 +97,8 @@ export async function updateEntryFields(input: {
     p_category: input.category,
     p_note: input.note,
     p_occurred_at: input.occurredAt,
+    p_contributor_id: input.contributorId ?? null,
+    p_contributor_name: input.contributorName ?? null,
     p_reason: input.reason,
   })
   if (error) throw error

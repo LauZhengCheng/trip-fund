@@ -1,4 +1,5 @@
 import type { Entry } from '../lib/entries'
+import type { Member } from '../lib/members'
 import { formatMinorUnits, isPositiveType } from '../lib/money'
 
 const CURRENCY_SYMBOLS: Record<string, string> = { MYR: 'RM', IDR: 'Rp' }
@@ -12,17 +13,29 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diffHr / 24)}d ago`
 }
 
+function titleFor(entry: Entry, members: Member[]): string {
+  if (entry.type === 'contribution') {
+    const name = entry.contributor_id
+      ? members.find((m) => m.id === entry.contributor_id)?.display_name
+      : entry.contributor_name
+    return `Contribution — ${name ?? 'Unknown'}`
+  }
+  return entry.note || entry.category || entry.type
+}
+
 export function EntryList({
   entries,
   walletLabel,
   currency,
   exponent,
+  members = [],
   onSelect,
 }: {
   entries: Entry[]
   walletLabel: string
   currency: string
   exponent: number
+  members?: Member[]
   onSelect?: (entry: Entry) => void
 }) {
   if (entries.length === 0) {
@@ -46,7 +59,7 @@ export function EntryList({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <p className="truncate text-sm font-semibold text-neutral-900">
-                  {entry.note || entry.category || entry.type}
+                  {titleFor(entry, members)}
                 </p>
                 {edited && (
                   <span className="shrink-0 rounded-full border border-neutral-400 px-1.5 text-[10px] font-bold text-neutral-500">

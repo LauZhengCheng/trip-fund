@@ -2,10 +2,12 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
 import { createEntry, createTransfer, getLastFxRate } from '../lib/entries'
 import { errorMessage } from '../lib/errors'
+import { listMembers, type Member } from '../lib/members'
 import { toMinorUnits, type EntryType } from '../lib/money'
 import type { Wallet } from '../lib/wallets'
 
 type Mode = 'expense' | 'contribution' | 'move'
+const OTHER_CONTRIBUTOR = '__other__'
 
 export function AddEntry({
   tripId,
@@ -23,10 +25,20 @@ export function AddEntry({
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState('')
   const [note, setNote] = useState('')
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const wallet = wallets.find((w) => w.id === defaultWalletId) ?? wallets[0]
+
+  // Contribution: who gave the money
+  const [members, setMembers] = useState<Member[]>([])
+  const [contributorChoice, setContributorChoice] = useState('')
+  const [contributorName, setContributorName] = useState('')
+
+  useEffect(() => {
+    listMembers(tripId).then(setMembers).catch(() => {})
+  }, [tripId])
 
   // "Move money" fields
   const [fromWalletId, setFromWalletId] = useState(defaultWalletId)
@@ -76,9 +88,29 @@ export function AddEntry({
           fromType: isExchange ? 'fx_out' : 'transfer_out',
           toType: isExchange ? 'fx_in' : 'transfer_in',
           fxRate: isExchange ? rateValue : null,
-          category: category.trim() || null,
+          category: null,
           note: note.trim() || null,
           occurredAt: new Date().toISOString(),
+        })
+      } else if (mode === 'contribution') {
+        if (!contributorChoice) throw new Error('Pick who this contribution is from')
+        const isOther = contributorChoice === OTHER_CONTRIBUTOR
+        if (isOther && !contributorName.trim()) {
+          throw new Error("Type the contributor's name")
+        }
+
+        await createEntry({
+          tripId,
+          walletId: wallet.id,
+          type: 'contribution',
+          amountMinor: toMinorUnits(Number(amount), wallet.exponent),
+          category: null,
+          note: note.trim() || null,
+          contributorId: isOther ? null : contributorChoice,
+          contributorName: isOther ? contributorName.trim() : null,
+          occurredAt: new Date().toISOString(),
+          createdBy: user.id,
+          receiptFile,
         })
       } else {
         await createEntry({
@@ -90,6 +122,7 @@ export function AddEntry({
           note: note.trim() || null,
           occurredAt: new Date().toISOString(),
           createdBy: user.id,
+          receiptFile,
         })
       }
       onDone()
@@ -101,8 +134,11 @@ export function AddEntry({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-5">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4">
+      <form
+        onSubmit={handleSubmit}
+        className="mx-auto w-full max-w-sm space-y-4 rounded-2xl bg-white p-5"
+      >
         <h2 className="text-lg font-semibold">Add entry</h2>
 
         <div className="flex gap-2">
@@ -234,18 +270,57 @@ export function AddEntry({
           </div>
         )}
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-500">
-            Category <span className="font-normal text-neutral-400">(optional)</span>
-          </label>
-          <input
-            type="text"
-            placeholder="e.g. Food, Taxi, Hotel"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2"
-          />
-        </div>
+        {mode === 'contribution' && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Contributor</label>
+            <select
+              required
+              value={contributorChoice}
+              onChange={(e) => setContributorChoice(e.target.value)}
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+            >
+              <option value="" disabled>
+                Who gave this money?
+              </option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.display_name}
+                </option>
+              ))}
+              <option value={OTHER_CONTRIBUTOR}>Someone not in the app yet…</option>
+            </select>
+            {contributorChoice === OTHER_CONTRIBUTOR && (
+              <input
+                type="text"
+                required
+                placeholder="Their name"
+                value={contributorName}
+                onChange={(e) => setContributorName(e.target.value)}
+                className="mt-2 w-full rounded-lg border border-neutral-300 px-3 py-2"
+              />
+            )}
+            {contributorChoice === OTHER_CONTRIBUTOR && (
+              <p className="mt-1 text-xs text-neutral-400">
+                Once they join the trip, edit this entry to switch it to their real account.
+              </p>
+            )}
+          </div>
+        )}
+
+        {mode === 'expense' && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">
+              Category <span className="font-normal text-neutral-400">(optional)</span>
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Food, Taxi, Hotel"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+            />
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-xs font-medium text-neutral-500">
@@ -259,6 +334,20 @@ export function AddEntry({
             className="w-full rounded-lg border border-neutral-300 px-3 py-2"
           />
         </div>
+
+        {mode !== 'move' && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">
+              Receipt photo <span className="font-normal text-neutral-400">(optional)</span>
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-neutral-600"
+            />
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
