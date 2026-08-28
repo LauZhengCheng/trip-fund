@@ -23,6 +23,16 @@ export async function listMembers(tripId: string): Promise<Member[]> {
   return data
 }
 
+export async function updateMemberRole(memberId: string, role: 'admin' | 'member'): Promise<void> {
+  const { error } = await supabase.from('members').update({ role }).eq('id', memberId)
+  if (error) throw error
+}
+
+export async function removeMember(memberId: string): Promise<void> {
+  const { error } = await supabase.from('members').delete().eq('id', memberId)
+  if (error) throw error
+}
+
 export function subscribeToMemberChanges(tripId: string, onChange: () => void): () => void {
   const channel = supabase
     .channel(`members-trip-${tripId}`)

@@ -98,7 +98,10 @@
 - [ ] 离线记账（客户端生成 UUID、IndexedDB 本地发件箱、幂等 upsert、待同步状态图标）
 - [ ] Web Push 通知（VAPID + Edge Function + 60 秒防抖 + 每晚汇总）
 - [ ] Telegram Bot（第二通道，自动发每日汇总 + CSV 备份）
-- [ ] 成员管理（Owner 任免 Admin / 移除 Member）
+- [x] 成员管理（2026-08-29）—— Owner 能把 member 升级成 admin、把 admin 降回
+      member、移除任何非 owner 的人；admin 只能移除 member 级别的人。数据库层面
+      补了两道防线（步骤 5 当时漏掉的）：owner 这一行不能被删、owner 的角色不能
+      被改成别的——不管是谁发起、透过什么方式，硬性挡住"这本账没了 owner"的情况。
 - [ ] 结算表（该退你多少 = 你交了多少 − 总消费 ÷ 人数）
 - [ ] 导出 CSV
 
