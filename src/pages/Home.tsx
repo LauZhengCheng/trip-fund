@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Avatar } from '../components/Avatar'
 import { EntryList } from '../components/EntryList'
+import { NotificationToggle } from '../components/NotificationToggle'
 import { useAuth } from '../lib/auth'
 import { listDeletedEntries, listEntries, subscribeToEntryChanges, type Entry } from '../lib/entries'
 import { errorMessage } from '../lib/errors'
@@ -32,6 +33,7 @@ const ADMIN_LEVEL = 2
 const OWNER_LEVEL = 3
 
 export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
+  const { user } = useAuth()
   const [wallets, setWallets] = useState<Wallet[] | null>(null)
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null)
   const [entries, setEntries] = useState<Entry[]>([])
@@ -120,6 +122,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   const visibleEntries = [...pendingAsEntries, ...entries]
   const balance = computeBalance(visibleEntries)
   const pendingIds = new Set(pendingEntries.map((p) => p.localId))
+  const myMemberId = members.find((m) => m.user_id === user?.id)?.id ?? null
 
   return (
     <div className="min-h-screen bg-neutral-50 pb-28">
@@ -171,6 +174,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
           <button onClick={() => setShowSettlement(true)} className="mt-1 text-xs text-neutral-400 underline">
             Settlement
           </button>
+          <NotificationToggle memberId={myMemberId} />
         </div>
       )}
 

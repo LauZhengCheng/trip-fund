@@ -115,7 +115,31 @@
       按钮会被禁用，收据上传框会隐藏；照片可以等回到有网后再从这笔记录里补传。
       ARCHITECTURE.md §9 原本也想让照片进同一个队列，这次先不做，如果之后发现家人
       经常在断网时需要拍收据，再回来加。
-- [ ] Web Push 通知（VAPID + Edge Function + 60 秒防抖 + 每晚汇总）
+- [~] Web Push 通知（2026-08-29）—— 代码全部写完，**但要 Zachary 手动做三步才能真的用**
+      （见下方，跟部署 Edge Function、跑 SQL 一样，没法用代码代劳）：
+      ① 本地跑 `npx web-push generate-vapid-keys` 生成的密钥已经填进 `.env`
+      （公钥/私钥/一个跟 Edge Function 之间的共享密码，私钥和密码没写进聊天记录，
+      只在本地 `.env` 里，`README.md`「Web Push」一节有完整步骤）；
+      ② 去 SQL Editor 跑 `schema.sql`「11. Web Push」那一节，再单独把两行
+      `alter database postgres set app.settings...` 的占位符换成真实值跑一次；
+      ③ 用 Supabase CLI 部署 `supabase/functions/send-push`，把四个密钥
+      `supabase secrets set` 进去。
+      **架构**：新记账不是立刻推——`pg_cron` 每分钟跑一次，把每个钱包"还没通知过"
+      的新记录（用 `entries.notified_at` 这个新字段标记）合并成一条，等 10 秒
+      让同一顿饭连续记的几笔落定再一起推，同一个人自己连续记的这一批不会推给他
+      自己（换了别人一起记，大家都收到）；`pg_net` 把算好的数字发给 Edge Function
+      `send-push`，真正的 VAPID 签名/加密/发送在那边用 `web-push` 这个 npm 包做
+      （Deno Edge Function 里用 `npm:` 直接 import，没另外重写加密）。每天固定时间
+      （默认 UTC 13:00 = 大马时间 21:00，改一下 cron 表达式就能调）还有一条当日
+      汇总，钱包当天没动静就不推。
+      **iOS 限制**：iOS 只有「已经加到主屏幕」的 PWA 才能用 Push API——在 Safari
+      分页里 `Notification`/`PushManager` 这些接口根本不存在，App 会侦测到这个
+      情况，在通知按钮那里改成提示"先加到主屏幕"，不会让人点了没反应。
+      Android 没有这个限制，Chrome 分页也能订阅推送。
+      **顺手修了一个坑**：cron 打的这个"标记为已通知"更新如果照旧走原来的
+      `log_entry_change()` 触发器，会在每笔账的历史记录里插入一条谁都没改过内容、
+      `changed_by` 是空的"update"，家人点开会看到莫名其妙的改动记录——改了触发器，
+      只有 `notified_at` 之外的字段真的变了才记历史。
 - [ ] Telegram Bot（第二通道，自动发每日汇总 + CSV 备份）
 - [x] 成员管理（2026-08-29）—— Owner 能把 member 升级成 admin、把 admin 降回
       member、移除任何非 owner 的人；admin 只能移除 member 级别的人。数据库层面
