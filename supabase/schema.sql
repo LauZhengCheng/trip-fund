@@ -588,6 +588,34 @@ create policy "trip_invites_admin_manage" on trip_invites
   with check (role_level(trip_id) >= 2);
 
 -- ============================================================
+-- 10. settlements —— 结算快照
+-- 只存一份"当时算出来的结果"，不锁账本、不生成任何抵消记账的 entries——
+-- 确认结算之后 admin 还是能照常记账、改动、删除，跟"admin 权限不受限"这条铁律一致。
+-- 每个钱包分开结算、不跨币种合并（钱包本来就分开算余额，结算延续同一个逻辑）。
+-- snapshot 存当时算出的每人「交了多少/该承担多少/该退多少」，方便回头对照，
+-- 不需要重新按当时的记账状态反推。
+-- ============================================================
+create table settlements (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references trips(id) on delete cascade,
+  wallet_id uuid not null references wallets(id) on delete cascade,
+  created_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now(),
+  snapshot jsonb not null
+);
+
+alter table settlements enable row level security;
+
+create policy "settlements_read" on settlements
+  for select using (role_level(trip_id) >= 1);
+
+create policy "settlements_insert" on settlements
+  for insert with check (role_level(trip_id) >= 2);
+
+create policy "settlements_delete" on settlements
+  for delete using (role_level(trip_id) >= 2);
+
+-- ============================================================
 -- 显式授权给 authenticated 角色
 -- 建项目时关掉了 "Automatically expose new tables"，所以这一步不会自动发生。
 -- 这里只是"允许尝试读写"，真正决定"能看到/改到哪些行"的还是上面那些 RLS 策略。
@@ -609,3 +637,4 @@ alter publication supabase_realtime add table entries;
 alter publication supabase_realtime add table wallets;
 alter publication supabase_realtime add table comments;
 alter publication supabase_realtime add table members;
+alter publication supabase_realtime add table settlements;

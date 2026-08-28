@@ -21,6 +21,7 @@ import {
   pendingEntryToEntry,
   type PendingEntry,
 } from '../lib/offline'
+import { computeSettlement, deleteSettlement, listSettlements, saveSettlement, type Settlement } from '../lib/settlement'
 import type { Trip } from '../lib/trips'
 import { createWallet, listWallets, subscribeToWalletChanges, type Wallet } from '../lib/wallets'
 import { AddEntry } from './AddEntry'
@@ -40,6 +41,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   const [showInvite, setShowInvite] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
   const [showRecycleBin, setShowRecycleBin] = useState(false)
+  const [showSettlement, setShowSettlement] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null)
   const [members, setMembers] = useState<Member[]>([])
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([])
@@ -166,6 +168,9 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
               {totalPendingCount} {totalPendingCount === 1 ? 'entry' : 'entries'} waiting to sync
             </p>
           )}
+          <button onClick={() => setShowSettlement(true)} className="mt-1 text-xs text-neutral-400 underline">
+            Settlement
+          </button>
         </div>
       )}
 
@@ -249,6 +254,17 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
 
       {showMembers && (
         <MembersList members={members} myRoleLevel={roleLevel} onClose={() => setShowMembers(false)} />
+      )}
+
+      {showSettlement && wallets && wallets.length > 0 && (
+        <SettlementView
+          trip={trip}
+          wallets={wallets}
+          members={members}
+          defaultWalletId={activeWalletId ?? wallets[0].id}
+          isAdmin={isAdmin}
+          onClose={() => setShowSettlement(false)}
+        />
       )}
 
       {isAdmin && showRecycleBin && activeWallet && (
@@ -429,6 +445,160 @@ function MembersList({
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
+function SettlementView({
+  trip,
+  wallets,
+  members,
+  defaultWalletId,
+  isAdmin,
+  onClose,
+}: {
+  trip: Trip
+  wallets: Wallet[]
+  members: Member[]
+  defaultWalletId: string
+  isAdmin: boolean
+  onClose: () => void
+}) {
+  const { user } = useAuth()
+  const [walletId, setWalletId] = useState(defaultWalletId)
+  const [entries, setEntries] = useState<Entry[] | null>(null)
+  const [history, setHistory] = useState<Settlement[]>([])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const wallet = wallets.find((w) => w.id === walletId) ?? wallets[0]
+  const symbol = CURRENCY_SYMBOLS[wallet.currency] ?? wallet.currency
+
+  const reload = useCallback(() => {
+    setEntries(null)
+    listEntries(walletId).then(setEntries)
+    listSettlements(walletId).then(setHistory)
+  }, [walletId])
+
+  useEffect(reload, [reload])
+
+  const rows = entries ? computeSettlement(entries, members) : []
+
+  async function handleSave() {
+    if (!user) return
+    setSaving(true)
+    setError('')
+    try {
+      await saveSettlement(trip.id, walletId, user.id, rows)
+      setHistory(await listSettlements(walletId))
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDeleteSnapshot(id: string) {
+    if (!window.confirm('Delete this settlement snapshot? This only removes the saved record, not any entries.')) return
+    try {
+      await deleteSettlement(id)
+      setHistory(await listSettlements(walletId))
+    } catch (err) {
+      setError(errorMessage(err))
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4">
+      <div className="mx-auto max-w-sm space-y-4 rounded-2xl bg-white p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Settlement</h2>
+          <button onClick={onClose} className="text-sm text-neutral-400">
+            Close
+          </button>
+        </div>
+
+        {wallets.length > 1 && (
+          <div className="flex gap-1 rounded-xl bg-neutral-200/60 p-1">
+            {wallets.map((w) => (
+              <button
+                key={w.id}
+                onClick={() => setWalletId(w.id)}
+                className={`flex-1 rounded-lg py-2 text-xs font-semibold ${
+                  w.id === walletId ? 'bg-neutral-900 text-white' : 'text-neutral-600'
+                }`}
+              >
+                {w.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <p className="text-xs text-neutral-400">
+          Each wallet settles on its own — everyone splits {wallet.label}'s total expenses equally,
+          regardless of how much they put in.
+        </p>
+
+        {entries === null && <p className="text-sm text-neutral-400">Loading…</p>}
+
+        {entries && rows.length === 0 && (
+          <p className="text-sm text-neutral-400">No contributions or expenses yet in this wallet.</p>
+        )}
+
+        {entries && rows.length > 0 && (
+          <div className="space-y-2">
+            {rows.map((r) => (
+              <div key={r.memberId ?? r.name} className="rounded-lg bg-neutral-50 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-neutral-900">{r.name}</span>
+                  <span
+                    className={`font-mono text-sm font-semibold tabular-nums ${
+                      r.refundMinor >= 0 ? 'text-emerald-600' : 'text-red-600'
+                    }`}
+                  >
+                    {r.refundMinor >= 0 ? 'Gets back ' : 'Owes '}
+                    {symbol} {formatMinorUnits(Math.abs(r.refundMinor), wallet.exponent)}
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-400">
+                  Paid {symbol} {formatMinorUnits(r.contributedMinor, wallet.exponent)} · share {symbol}{' '}
+                  {formatMinorUnits(r.shareMinor, wallet.exponent)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isAdmin && entries && rows.length > 0 && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full rounded-lg bg-neutral-900 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save this as a settlement snapshot'}
+          </button>
+        )}
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        {history.length > 0 && (
+          <div>
+            <p className="mb-1 text-xs font-bold tracking-wide text-neutral-400">PAST SNAPSHOTS</p>
+            <div className="space-y-1">
+              {history.map((h) => (
+                <div key={h.id} className="flex items-center justify-between text-xs text-neutral-500">
+                  <span>{new Date(h.created_at).toLocaleString()}</span>
+                  {isAdmin && (
+                    <button onClick={() => handleDeleteSnapshot(h.id)} className="text-red-500 underline">
+                      Delete
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
