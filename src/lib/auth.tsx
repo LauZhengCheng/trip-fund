@@ -53,7 +53,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: currentUrlWithoutAuthFragment() },
+      options: {
+        redirectTo: currentUrlWithoutAuthFragment(),
+        // Without this, Google silently reuses whichever account already has
+        // an active session on the device instead of showing the picker --
+        // fine for a family member with only their own account, but it's
+        // what makes it impossible to test-switch between accounts here.
+        queryParams: { prompt: 'select_account' },
+      },
     })
     return { error: error?.message ?? null }
   }
