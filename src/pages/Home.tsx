@@ -193,7 +193,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
 
       {isAdmin && showInvite && <InviteLink tripId={trip.id} onDone={() => setShowInvite(false)} />}
 
-      {showMembers && <MembersList tripId={trip.id} onClose={() => setShowMembers(false)} />}
+      {showMembers && <MembersList members={members} onClose={() => setShowMembers(false)} />}
 
       {isAdmin && showRecycleBin && activeWallet && (
         <RecycleBin
@@ -263,16 +263,7 @@ function RecycleBin({
   )
 }
 
-function MembersList({ tripId, onClose }: { tripId: string; onClose: () => void }) {
-  const [members, setMembers] = useState<Member[] | null>(null)
-
-  const reload = useCallback(() => {
-    listMembers(tripId).then(setMembers)
-  }, [tripId])
-
-  useEffect(reload, [reload])
-  useEffect(() => subscribeToMemberChanges(tripId, reload), [tripId, reload])
-
+function MembersList({ members, onClose }: { members: Member[]; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4">
       <div className="mx-auto max-w-sm space-y-4 rounded-2xl bg-white p-5">
@@ -283,10 +274,10 @@ function MembersList({ tripId, onClose }: { tripId: string; onClose: () => void 
           </button>
         </div>
 
-        {members === null && <p className="text-sm text-neutral-400">Loading…</p>}
+        {members.length === 0 && <p className="text-sm text-neutral-400">Loading…</p>}
 
         <div className="space-y-2">
-          {members?.map((m) => (
+          {members.map((m) => (
             <div
               key={m.user_id}
               className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2"
