@@ -560,3 +560,12 @@ grant execute on function update_entry_fields(uuid, bigint, text, text, timestam
 grant execute on function soft_delete_entry(uuid, text) to authenticated;
 grant execute on function restore_entry(uuid, text) to authenticated;
 grant execute on function create_transfer(uuid, uuid, uuid, bigint, bigint, text, text, numeric, text, text, timestamptz) to authenticated;
+
+-- ============================================================
+-- 实时同步：前端订阅了这几张表的变化，得先让它们加入这个发布，
+-- 不然订阅了也收不到任何通知。
+-- ============================================================
+alter publication supabase_realtime add table entries;
+alter publication supabase_realtime add table wallets;
+alter publication supabase_realtime add table comments;
+alter publication supabase_realtime add table members;

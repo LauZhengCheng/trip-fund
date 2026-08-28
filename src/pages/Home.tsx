@@ -5,7 +5,7 @@ import { useAuth } from '../lib/auth'
 import { listDeletedEntries, listEntries, subscribeToEntryChanges, type Entry } from '../lib/entries'
 import { errorMessage } from '../lib/errors'
 import { createInviteLink } from '../lib/invites'
-import { getMyRoleLevel } from '../lib/members'
+import { getMyRoleLevel, listMembers, subscribeToMemberChanges, type Member } from '../lib/members'
 import { formatMinorUnits, computeBalance } from '../lib/money'
 import type { Trip } from '../lib/trips'
 import { createWallet, listWallets, subscribeToWalletChanges, type Wallet } from '../lib/wallets'
@@ -23,6 +23,7 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   const [showAddWallet, setShowAddWallet] = useState(false)
   const [showAddEntry, setShowAddEntry] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
+  const [showMembers, setShowMembers] = useState(false)
   const [showRecycleBin, setShowRecycleBin] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null)
 
@@ -75,6 +76,9 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         </button>
         <h1 className="text-lg font-bold">{trip.name}</h1>
         <div className="flex items-center gap-3">
+          <button onClick={() => setShowMembers(true)} className="text-sm text-neutral-500">
+            Members
+          </button>
           {isAdmin && (
             <button onClick={() => setShowInvite(true)} className="text-sm text-neutral-500">
               Invite
@@ -180,6 +184,8 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
 
       {isAdmin && showInvite && <InviteLink tripId={trip.id} onDone={() => setShowInvite(false)} />}
 
+      {showMembers && <MembersList tripId={trip.id} onClose={() => setShowMembers(false)} />}
+
       {isAdmin && showRecycleBin && activeWallet && (
         <RecycleBin
           wallet={activeWallet}
@@ -239,6 +245,46 @@ function RecycleBin({
             onSelect={onSelect}
           />
         )}
+      </div>
+    </div>
+  )
+}
+
+function MembersList({ tripId, onClose }: { tripId: string; onClose: () => void }) {
+  const [members, setMembers] = useState<Member[] | null>(null)
+
+  const reload = useCallback(() => {
+    listMembers(tripId).then(setMembers)
+  }, [tripId])
+
+  useEffect(reload, [reload])
+  useEffect(() => subscribeToMemberChanges(tripId, reload), [tripId, reload])
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4">
+      <div className="mx-auto max-w-sm space-y-4 rounded-2xl bg-white p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Members</h2>
+          <button onClick={onClose} className="text-sm text-neutral-400">
+            Close
+          </button>
+        </div>
+
+        {members === null && <p className="text-sm text-neutral-400">Loading…</p>}
+
+        <div className="space-y-2">
+          {members?.map((m) => (
+            <div
+              key={m.user_id}
+              className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2"
+            >
+              <span className="text-sm text-neutral-900">{m.display_name}</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                {m.role}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
