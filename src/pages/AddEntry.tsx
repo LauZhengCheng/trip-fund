@@ -337,15 +337,23 @@ export function AddEntry({
 
         {mode !== 'move' && (
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
+            <p className="mb-1 block text-xs font-medium text-neutral-500">
               Receipt photo <span className="font-normal text-neutral-400">(optional)</span>
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-neutral-600"
-            />
+            </p>
+            <div className="flex items-center gap-2">
+              <label className="inline-block cursor-pointer rounded-lg bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
+                {receiptFile ? 'Change photo' : '+ Add photo'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                  className="hidden"
+                />
+              </label>
+              {receiptFile && (
+                <span className="min-w-0 flex-1 truncate text-xs text-neutral-400">{receiptFile.name}</span>
+              )}
+            </div>
           </div>
         )}
 
