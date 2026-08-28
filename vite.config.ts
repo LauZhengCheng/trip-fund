@@ -14,6 +14,11 @@ export default defineConfig({
       // a reload the moment a new version is found, instead of a stale tab
       // silently running old code until it happens to be closed and reopened.
       injectRegister: false,
+      workbox: {
+        // Adds our push/notificationclick listeners into the generated
+        // service worker (Workbox itself has no opinion on Web Push).
+        importScripts: ['push-sw.js'],
+      },
       manifest: {
         name: 'Trip Fund',
         short_name: 'Trip Fund',

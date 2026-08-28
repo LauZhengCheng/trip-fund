@@ -15,6 +15,9 @@ dist-ssr
 # 环境变量，含 Supabase 密钥，绝不上传
 .env
 
+# Supabase CLI 本地缓存，跟项目代码无关
+supabase/.temp
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
