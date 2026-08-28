@@ -2,8 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
 import { createEntry, createTransfer, getLastFxRate } from '../lib/entries'
 import { errorMessage } from '../lib/errors'
-import { listMembers, type Member } from '../lib/members'
+import type { Member } from '../lib/members'
 import { toMinorUnits, type EntryType } from '../lib/money'
+import { queueEntry } from '../lib/offline'
 import type { Wallet } from '../lib/wallets'
 
 type Mode = 'expense' | 'contribution' | 'move'
@@ -12,11 +13,13 @@ const OTHER_CONTRIBUTOR = '__other__'
 export function AddEntry({
   tripId,
   wallets,
+  members,
   defaultWalletId,
   onDone,
 }: {
   tripId: string
   wallets: Wallet[]
+  members: Member[]
   defaultWalletId: string
   onDone: () => void
 }) {
@@ -28,17 +31,24 @@ export function AddEntry({
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [isOffline, setIsOffline] = useState(!navigator.onLine)
 
   const wallet = wallets.find((w) => w.id === defaultWalletId) ?? wallets[0]
 
   // Contribution: who gave the money
-  const [members, setMembers] = useState<Member[]>([])
   const [contributorChoice, setContributorChoice] = useState('')
   const [contributorName, setContributorName] = useState('')
 
   useEffect(() => {
-    listMembers(tripId).then(setMembers).catch(() => {})
-  }, [tripId])
+    const goOnline = () => setIsOffline(false)
+    const goOffline = () => setIsOffline(true)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
 
   // "Move money" fields
   const [fromWalletId, setFromWalletId] = useState(defaultWalletId)
@@ -72,6 +82,7 @@ export function AddEntry({
     setError('')
     try {
       if (mode === 'move') {
+        if (isOffline) throw new Error('Moving money between wallets needs an internet connection')
         if (!toWallet) throw new Error('Pick a wallet to move money into')
         const fromAmountMinor = toMinorUnits(Number(amount), fromWallet.exponent)
         const rateValue = isExchange ? Number(rate) : 1
@@ -99,10 +110,10 @@ export function AddEntry({
           throw new Error("Type the contributor's name")
         }
 
-        await createEntry({
+        const entryInput = {
           tripId,
           walletId: wallet.id,
-          type: 'contribution',
+          type: 'contribution' as EntryType,
           amountMinor: toMinorUnits(Number(amount), wallet.exponent),
           category: null,
           note: note.trim() || null,
@@ -110,10 +121,14 @@ export function AddEntry({
           contributorName: isOther ? contributorName.trim() : null,
           occurredAt: new Date().toISOString(),
           createdBy: user.id,
-          receiptFile,
-        })
+        }
+        if (isOffline) {
+          await queueEntry(entryInput)
+        } else {
+          await createEntry({ ...entryInput, receiptFile })
+        }
       } else {
-        await createEntry({
+        const entryInput = {
           tripId,
           walletId: wallet.id,
           type: mode as EntryType,
@@ -122,8 +137,12 @@ export function AddEntry({
           note: note.trim() || null,
           occurredAt: new Date().toISOString(),
           createdBy: user.id,
-          receiptFile,
-        })
+        }
+        if (isOffline) {
+          await queueEntry(entryInput)
+        } else {
+          await createEntry({ ...entryInput, receiptFile })
+        }
       }
       onDone()
     } catch (err) {
@@ -140,6 +159,12 @@ export function AddEntry({
         className="mx-auto w-full max-w-sm space-y-4 rounded-2xl bg-white p-5"
       >
         <h2 className="text-lg font-semibold">Add entry</h2>
+
+        {isOffline && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            You're offline. This will be saved on your phone and uploaded once you're back online.
+          </p>
+        )}
 
         <div className="flex gap-2">
           <button
@@ -164,7 +189,8 @@ export function AddEntry({
             <button
               type="button"
               onClick={() => setMode('move')}
-              className={`flex-1 rounded-lg py-2 text-sm font-medium ${
+              disabled={isOffline}
+              className={`flex-1 rounded-lg py-2 text-sm font-medium disabled:opacity-40 ${
                 mode === 'move' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'
               }`}
             >
@@ -335,7 +361,7 @@ export function AddEntry({
           />
         </div>
 
-        {mode !== 'move' && (
+        {mode !== 'move' && !isOffline && (
           <div>
             <p className="mb-1 block text-xs font-medium text-neutral-500">
               Receipt photo <span className="font-normal text-neutral-400">(optional)</span>

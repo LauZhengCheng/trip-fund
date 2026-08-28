@@ -95,7 +95,16 @@
 > 结束时的状态：没网也能记，家人手机会响，能一键结算。
 > **风险提示（ARCHITECTURE.md §11）**：离线和推送最容易超时，卡住时优先保离线，推送用 Telegram 兜底。
 
-- [ ] 离线记账（客户端生成 UUID、IndexedDB 本地发件箱、幂等 upsert、待同步状态图标）
+- [x] 离线记账（2026-08-29）—— Expense 和 Contribution 断网也能记：判断
+      `navigator.onLine`，没网时写进本地 IndexedDB 发件箱（不打网络请求），有网时照旧直接
+      写库；回到有网（`online` 事件，或重新打开 App）自动用 upsert 补传，同一条用同一个
+      UUID，补传失败/重复不会变成两笔。列表和余额里待补传的条目立刻显示（乐观更新），
+      带「Pending sync」标签；余额上方有「N entries waiting to sync」提示。
+      **有意缩小的范围**：Move/换汇（因为要连着两条一起写，重试更复杂）和收据照片
+      （二进制文件放 IndexedDB 队列复杂度不成比例）这两样离线时不支持——没网时 Move
+      按钮会被禁用，收据上传框会隐藏；照片可以等回到有网后再从这笔记录里补传。
+      ARCHITECTURE.md §9 原本也想让照片进同一个队列，这次先不做，如果之后发现家人
+      经常在断网时需要拍收据，再回来加。
 - [ ] Web Push 通知（VAPID + Edge Function + 60 秒防抖 + 每晚汇总）
 - [ ] Telegram Bot（第二通道，自动发每日汇总 + CSV 备份）
 - [x] 成员管理（2026-08-29）—— Owner 能把 member 升级成 admin、把 admin 降回
