@@ -68,10 +68,12 @@
       任何人改动，其他人打开的页面会自动刷新，不用手动 F5。
 - [x] 每笔评论 / 提问（2026-08-27）—— 在 `EntryDetail.tsx` 里，member 也能发（这是
       member 唯一能写的地方），自己发的和 admin 都能删。
-- [~] Google 登录（2026-08-27）—— 前端代码（Login 页的按钮、`signInWithGoogle()`）
-      已经写好，摆在 Magic Link 上面（主推 Google，符合 ARCHITECTURE.md 的设计）。
-      **还差 Zachary 去 Google Cloud Console 建 OAuth 应用、把 Client ID/Secret
-      填进 Supabase 才能真的用**，这一步没法用代码代劳。
+- [x] Google 登录（代码 2026-08-27，Zachary 完成 Google Cloud Console 设置并
+      验证成功 2026-08-28）—— Login 页的"Continue with Google"按钮，摆在 Magic
+      Link 上面（主推 Google，符合 ARCHITECTURE.md 的设计）。测试过程中顺手修了
+      两个连带问题：① Google 默认跳过选账号、直接用设备上已登录的那个，加了
+      `prompt=select_account` 强制每次弹出选择画面；② 头像图片加载失败时只显示
+      浏览器默认坏图标，加了失败退回字母圆圈的机制。
 - [x] PWA 安装引导（2026-08-27）—— 加了 `InstallPrompt.tsx`：iOS 显示"用 Safari 加到
       主画面"的文字提示（iOS 没有自动弹窗这个 API），Android/桌面 Chrome 用系统自带的
       安装弹窗。顺手发现 PWA manifest 之前完全没配图标（装不成、Chrome 的安装按钮可能
@@ -170,7 +172,8 @@ table trips"——这其实证明权限设计是对的，只是敲错了门。�
 构建发布）和数据库防休眠都已跑通。
 
 下一步：Day 2——多钱包换汇、收据、修改删除与变更记录、实时同步、评论、Google 登录、
-PWA 安装引导、邀请家人加入行程。
+PWA 安装引导、邀请家人加入行程。（这一段是 2026-08-25 写的旧记录，Day 2 现已全部完成，
+见下方"Day 2 之后发现的补丁"和文件最上面 Day 2 清单——每一项都已打勾。）
 
 ---
 
@@ -210,5 +213,15 @@ Day 2 名义上做完了，但实际测试（尤其是第一次真正打开手�
   版本"，没写"发现新版本就自动刷新"。改成 `main.tsx` 里自己接管 service worker 注册
   （`vite.config.ts` 设 `injectRegister: false`），一发现新版本就自动刷新页面，
   以后每次我们改完代码，家人手机上打开就是最新版，不用他们自己猜要不要关掉重开。
+
+---
+
+## 现在实际走到哪了（2026-08-29，取代上面所有"下一步"的旧记录）
+
+**Day 1 + Day 2 全部完成，包括 Google 登录。** 唯一还没做的是 **Day 3** 整段：
+成员管理（Owner 任免 Admin / 移除 Member）、离线记账、推送通知（Web Push + Telegram）、
+结算表、导出 CSV，外加"出发前必做"清单（一个都还没做，因为前提功能没写完）。
+
+下一步：Day 3，建议顺序是成员管理 → 离线记账 → 结算表 → 推送通知 → 导出 CSV。
 
 *最后更新：2026-08-29*
