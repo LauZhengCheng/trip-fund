@@ -10,6 +10,10 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // We register the service worker ourselves in main.tsx so we can force
+      // a reload the moment a new version is found, instead of a stale tab
+      // silently running old code until it happens to be closed and reopened.
+      injectRegister: false,
       manifest: {
         name: 'Trip Fund',
         short_name: 'Trip Fund',
@@ -22,6 +26,22 @@ export default defineConfig({
             sizes: 'any',
             type: 'image/svg+xml',
             purpose: 'any',
+          },
+          {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
           },
         ],
       },
