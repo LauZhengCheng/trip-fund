@@ -479,7 +479,8 @@ create policy "trips_owner_delete" on trips
   for delete using (role_level(id) >= 3);
 
 -- members：全员可读（透明）；admin+ 能邀请；owner 能改角色；
--- owner 能删任何人，admin 只能删 member 级别的（动不了 admin/owner）
+-- owner 能删任何人（owner 自己除外，见下面的触发器），
+-- admin 只能删 member 级别的（动不了 admin/owner）
 create policy "members_read" on members
   for select using (role_level(trip_id) >= 1);
 
@@ -489,11 +490,34 @@ create policy "members_insert" on members
 create policy "members_owner_update_role" on members
   for update using (role_level(trip_id) >= 3);
 
+-- owner 这一行本身不能被删——就算是 owner 自己发起的操作也不行，
+-- 这条规则不看"谁在操作"，只看"要删的那一行是不是 owner"。
 create policy "members_delete" on members
   for delete using (
-    role_level(trip_id) >= 3
-    or (role_level(trip_id) >= 2 and role = 'member')
+    role <> 'owner'
+    and (role_level(trip_id) >= 3 or (role_level(trip_id) >= 2 and role = 'member'))
   );
+
+-- 光靠上面那条 RLS 还不够：owner 理论上还是能把自己的角色改成 admin/member，
+-- 一旦改掉，这本账就再也没有 owner 了，谁都升不回去、也踢不动任何人。
+-- 用触发器在数据库层面直接堵死"owner 这一行的 role 被改成别的东西"这件事，
+-- 不管是谁、透过什么方式发起的更新都拦得住。
+create or replace function prevent_owner_demotion()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.role = 'owner' and new.role <> 'owner' then
+    raise exception 'The trip owner cannot be demoted';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger on_member_role_change
+  before update on members
+  for each row execute function prevent_owner_demotion();
 
 -- wallets：全员可读；admin+ 全权限（增删改，含归档）
 create policy "wallets_read" on wallets

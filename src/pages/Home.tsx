@@ -5,7 +5,14 @@ import { useAuth } from '../lib/auth'
 import { listDeletedEntries, listEntries, subscribeToEntryChanges, type Entry } from '../lib/entries'
 import { errorMessage } from '../lib/errors'
 import { createInviteLink } from '../lib/invites'
-import { getMyRoleLevel, listMembers, subscribeToMemberChanges, type Member } from '../lib/members'
+import {
+  getMyRoleLevel,
+  listMembers,
+  removeMember,
+  subscribeToMemberChanges,
+  updateMemberRole,
+  type Member,
+} from '../lib/members'
 import { formatMinorUnits, computeBalance } from '../lib/money'
 import type { Trip } from '../lib/trips'
 import { createWallet, listWallets, subscribeToWalletChanges, type Wallet } from '../lib/wallets'
@@ -14,6 +21,7 @@ import { EntryDetail } from './EntryDetail'
 
 const CURRENCY_SYMBOLS: Record<string, string> = { MYR: 'RM', IDR: 'Rp' }
 const ADMIN_LEVEL = 2
+const OWNER_LEVEL = 3
 
 export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   const [wallets, setWallets] = useState<Wallet[] | null>(null)
@@ -193,7 +201,9 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
 
       {isAdmin && showInvite && <InviteLink tripId={trip.id} onDone={() => setShowInvite(false)} />}
 
-      {showMembers && <MembersList members={members} onClose={() => setShowMembers(false)} />}
+      {showMembers && (
+        <MembersList members={members} myRoleLevel={roleLevel} onClose={() => setShowMembers(false)} />
+      )}
 
       {isAdmin && showRecycleBin && activeWallet && (
         <RecycleBin
@@ -263,7 +273,55 @@ function RecycleBin({
   )
 }
 
-function MembersList({ members, onClose }: { members: Member[]; onClose: () => void }) {
+function MembersList({
+  members,
+  myRoleLevel,
+  onClose,
+}: {
+  members: Member[]
+  myRoleLevel: number
+  onClose: () => void
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  async function handlePromote(m: Member) {
+    setBusyId(m.id)
+    setError('')
+    try {
+      await updateMemberRole(m.id, 'admin')
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleDemote(m: Member) {
+    setBusyId(m.id)
+    setError('')
+    try {
+      await updateMemberRole(m.id, 'member')
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleRemove(m: Member) {
+    if (!window.confirm(`Remove ${m.display_name} from this trip?`)) return
+    setBusyId(m.id)
+    setError('')
+    try {
+      await removeMember(m.id)
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4">
       <div className="mx-auto max-w-sm space-y-4 rounded-2xl bg-white p-5">
@@ -277,18 +335,54 @@ function MembersList({ members, onClose }: { members: Member[]; onClose: () => v
         {members.length === 0 && <p className="text-sm text-neutral-400">Loading…</p>}
 
         <div className="space-y-2">
-          {members.map((m) => (
-            <div
-              key={m.user_id}
-              className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2"
-            >
-              <span className="text-sm text-neutral-900">{m.display_name}</span>
-              <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-                {m.role}
-              </span>
-            </div>
-          ))}
+          {members.map((m) => {
+            const canManage =
+              m.role !== 'owner' &&
+              (myRoleLevel >= OWNER_LEVEL || (myRoleLevel >= ADMIN_LEVEL && m.role === 'member'))
+            const busy = busyId === m.id
+            return (
+              <div key={m.user_id} className="rounded-lg bg-neutral-50 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-neutral-900">{m.display_name}</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                    {m.role}
+                  </span>
+                </div>
+                {canManage && (
+                  <div className="mt-1.5 flex gap-3">
+                    {myRoleLevel >= OWNER_LEVEL && m.role === 'member' && (
+                      <button
+                        onClick={() => handlePromote(m)}
+                        disabled={busy}
+                        className="text-xs text-neutral-500 underline disabled:opacity-50"
+                      >
+                        Make admin
+                      </button>
+                    )}
+                    {myRoleLevel >= OWNER_LEVEL && m.role === 'admin' && (
+                      <button
+                        onClick={() => handleDemote(m)}
+                        disabled={busy}
+                        className="text-xs text-neutral-500 underline disabled:opacity-50"
+                      >
+                        Remove admin
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleRemove(m)}
+                      disabled={busy}
+                      className="text-xs text-red-500 underline disabled:opacity-50"
+                    >
+                      Remove from trip
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
     </div>
   )
