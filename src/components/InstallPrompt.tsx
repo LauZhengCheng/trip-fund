@@ -1,19 +1,9 @@
 import { useEffect, useState } from 'react'
+import { isIOS, isStandalone } from '../lib/platform'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => void
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
-}
-
-function isStandalone(): boolean {
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    (window.navigator as unknown as { standalone?: boolean }).standalone === true
-  )
-}
-
-function isIOS(): boolean {
-  return /iphone|ipad|ipod/i.test(window.navigator.userAgent)
 }
 
 const DISMISSED_KEY = 'trip-fund-install-prompt-dismissed'
