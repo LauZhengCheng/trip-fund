@@ -21,3 +21,18 @@ export async function listMembers(tripId: string): Promise<Member[]> {
   if (error) throw error
   return data
 }
+
+export function subscribeToMemberChanges(tripId: string, onChange: () => void): () => void {
+  const channel = supabase
+    .channel(`members-trip-${tripId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'members', filter: `trip_id=eq.${tripId}` },
+      onChange,
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}
