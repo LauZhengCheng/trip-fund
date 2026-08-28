@@ -14,6 +14,13 @@ import {
   type Member,
 } from '../lib/members'
 import { formatMinorUnits, computeBalance } from '../lib/money'
+import {
+  countAllPendingEntries,
+  flushPendingEntries,
+  getPendingEntriesForWallet,
+  pendingEntryToEntry,
+  type PendingEntry,
+} from '../lib/offline'
 import type { Trip } from '../lib/trips'
 import { createWallet, listWallets, subscribeToWalletChanges, type Wallet } from '../lib/wallets'
 import { AddEntry } from './AddEntry'
@@ -35,6 +42,8 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
   const [showRecycleBin, setShowRecycleBin] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null)
   const [members, setMembers] = useState<Member[]>([])
+  const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([])
+  const [totalPendingCount, setTotalPendingCount] = useState(0)
 
   const isAdmin = roleLevel >= ADMIN_LEVEL
 
@@ -81,8 +90,34 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
     return subscribeToEntryChanges(activeWalletId, reloadEntries)
   }, [activeWalletId, reloadEntries])
 
+  const reloadPending = useCallback(async () => {
+    setTotalPendingCount(await countAllPendingEntries())
+    setPendingEntries(activeWalletId ? await getPendingEntriesForWallet(activeWalletId) : [])
+  }, [activeWalletId])
+
+  useEffect(() => {
+    reloadPending()
+  }, [reloadPending])
+
+  const flushAndReload = useCallback(async () => {
+    const synced = await flushPendingEntries()
+    if (synced > 0) {
+      reloadEntries()
+      reloadPending()
+    }
+  }, [reloadEntries, reloadPending])
+
+  useEffect(() => {
+    flushAndReload()
+    window.addEventListener('online', flushAndReload)
+    return () => window.removeEventListener('online', flushAndReload)
+  }, [flushAndReload])
+
   const activeWallet = wallets?.find((w) => w.id === activeWalletId) ?? null
-  const balance = computeBalance(entries)
+  const pendingAsEntries = pendingEntries.map(pendingEntryToEntry)
+  const visibleEntries = [...pendingAsEntries, ...entries]
+  const balance = computeBalance(visibleEntries)
+  const pendingIds = new Set(pendingEntries.map((p) => p.localId))
 
   return (
     <div className="min-h-screen bg-neutral-50 pb-28">
@@ -126,6 +161,11 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
             {CURRENCY_SYMBOLS[activeWallet.currency] ?? activeWallet.currency}{' '}
             {formatMinorUnits(balance, activeWallet.exponent)}
           </p>
+          {totalPendingCount > 0 && (
+            <p className="mt-1 text-xs font-medium text-amber-600">
+              {totalPendingCount} {totalPendingCount === 1 ? 'entry' : 'entries'} waiting to sync
+            </p>
+          )}
         </div>
       )}
 
@@ -151,12 +191,16 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         <div className="px-5">
           <p className="mb-2 text-xs font-bold tracking-wide text-neutral-400">RECENT ACTIVITY</p>
           <EntryList
-            entries={entries}
+            entries={visibleEntries}
             walletLabel={activeWallet.label}
             currency={activeWallet.currency}
             exponent={activeWallet.exponent}
             members={members}
-            onSelect={setSelectedEntry}
+            pendingIds={pendingIds}
+            onSelect={(entry) => {
+              if (pendingIds.has(entry.id)) return
+              setSelectedEntry(entry)
+            }}
           />
         </div>
       )}
@@ -191,10 +235,12 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         <AddEntry
           tripId={trip.id}
           wallets={wallets}
+          members={members}
           defaultWalletId={activeWallet.id}
           onDone={() => {
             setShowAddEntry(false)
             reloadEntries()
+            reloadPending()
           }}
         />
       )}

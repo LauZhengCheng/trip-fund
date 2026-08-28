@@ -29,6 +29,7 @@ export function EntryList({
   currency,
   exponent,
   members = [],
+  pendingIds,
   onSelect,
 }: {
   entries: Entry[]
@@ -36,6 +37,7 @@ export function EntryList({
   currency: string
   exponent: number
   members?: Member[]
+  pendingIds?: Set<string>
   onSelect?: (entry: Entry) => void
 }) {
   if (entries.length === 0) {
@@ -49,19 +51,27 @@ export function EntryList({
       {entries.map((entry) => {
         const positive = isPositiveType(entry.type)
         const edited = entry.updated_at !== entry.created_at
+        const pending = pendingIds?.has(entry.id) ?? false
         return (
           <button
             key={entry.id}
             type="button"
             onClick={() => onSelect?.(entry)}
-            className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left"
+            className={`flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left ${
+              pending ? 'opacity-60' : ''
+            }`}
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <p className="truncate text-sm font-semibold text-neutral-900">
                   {titleFor(entry, members)}
                 </p>
-                {edited && (
+                {pending && (
+                  <span className="shrink-0 rounded-full border border-amber-400 px-1.5 text-[10px] font-bold text-amber-600">
+                    Pending sync
+                  </span>
+                )}
+                {!pending && edited && (
                   <span className="shrink-0 rounded-full border border-neutral-400 px-1.5 text-[10px] font-bold text-neutral-500">
                     Edited
                   </span>
