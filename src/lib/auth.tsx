@@ -12,6 +12,19 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
+/**
+ * Origin + path + query string, deliberately WITHOUT the hash fragment.
+ * A previous OAuth/magic-link redirect can leave #access_token=... sitting in
+ * the address bar; using window.location.href directly would carry that
+ * leftover fragment into the *next* redirectTo, which then comes back even
+ * bigger and eventually too malformed for the client to parse. The query
+ * string is kept so a `?invite=...` link survives the round trip; the hash
+ * never holds anything we intentionally put there, so it's always safe to drop.
+ */
+function currentUrlWithoutAuthFragment(): string {
+  return window.location.origin + window.location.pathname + window.location.search
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
@@ -30,22 +43,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function signInWithEmail(email: string) {
-    // window.location.href (not .origin): if the user opened an invite link
-    // (?invite=...) before logging in, this keeps that query param through the
-    // "email sent -> click link in email -> land back in the app" round trip.
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.href },
+      options: { emailRedirectTo: currentUrlWithoutAuthFragment() },
     })
     return { error: error?.message ?? null }
   }
 
   async function signInWithGoogle() {
-    // Same reasoning as above: keep whatever URL (including ?invite=...) the
-    // user was on so the round trip through Google's consent screen preserves it.
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.href },
+      options: { redirectTo: currentUrlWithoutAuthFragment() },
     })
     return { error: error?.message ?? null }
   }
