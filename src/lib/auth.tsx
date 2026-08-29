@@ -6,6 +6,7 @@ type AuthContextValue = {
   user: User | null
   loading: boolean
   signInWithEmail: (email: string) => Promise<{ error: string | null }>
+  verifyEmailCode: (email: string, token: string) => Promise<{ error: string | null }>
   signInWithGoogle: () => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
@@ -50,6 +51,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null }
   }
 
+  /**
+   * The emailed link only ever opens in the phone's regular browser, never in
+   * a home-screen-installed PWA (separate storage container, no way around
+   * it) -- so a code the user can type directly into whichever context
+   * they're actually using is the only way sign-in reliably works there.
+   * `signInWithOtp` already put the same code in the email as the link.
+   */
+  async function verifyEmailCode(email: string, token: string) {
+    const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
+    return { error: error?.message ?? null }
+  }
+
   async function signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -71,7 +84,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user: session?.user ?? null, loading, signInWithEmail, signInWithGoogle, signOut }}
+      value={{
+        user: session?.user ?? null,
+        loading,
+        signInWithEmail,
+        verifyEmailCode,
+        signInWithGoogle,
+        signOut,
+      }}
     >
       {children}
     </AuthContext.Provider>

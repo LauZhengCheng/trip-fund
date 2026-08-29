@@ -78,6 +78,24 @@
       已经写好，摆在 Magic Link 上面（主推 Google，符合 ARCHITECTURE.md 的设计）。
       **还差 Zachary 去 Google Cloud Console 建 OAuth 应用、把 Client ID/Secret
       填进 Supabase 才能真的用**，这一步没法用代码代劳。
+      **发现一个跟主屏幕 App 有关的真问题（2026-08-29）**：Zachary 实测发现，
+      Safari 登录成功后，主屏幕上那个"加到主屏幕"的独立 App 还是要求重新登录。
+      查证后发现是 iOS 的系统限制：**主屏幕 App 跟 Safari 是两个完全独立、互不
+      共享数据的存储空间**，就算是同一个网站也一样（之前 2026-08-29 早些时候
+      跟 Zachary 解释邀请链接问题时，说过"Safari 和主屏幕 App 共享登录状态"，
+      那是说错了，这里更正）。更麻烦的是 Magic Link 本身：不管在哪个"房间"点
+      「发送登录链接」，邮件里的链接被点开时 iOS 一定用 Safari 打开（跟邀请链接
+      同一个系统限制），永远落不回主屏幕 App——所以主屏幕 App 事实上几乎不可能
+      靠点链接登录成功。跟 Zachary 说明情况后，两个方向都做：
+      ① Magic Link 加了验证码：`signInWithOtp` 本来就会在邮件里附一个 6 位数字
+      验证码（跟链接是同一封信），Login 页发信后现在会显示一个验证码输入框，
+      调 `verifyOtp()` 直接在当前这个"房间"完成登录，不用跳出去点任何链接——
+      不管在 Safari 还是主屏幕 App 里都能用。**这个要生效，Zachary 还要去
+      Supabase Dashboard → Authentication → Email Templates → Magic Link 确认
+      模板里有显示验证码的变量**，这一步也没法用代码代劳。
+      ② Google 登录（上面提的那个还没配的功能）改成优先做——因为 OAuth 整个
+      流程都在同一个浏览器窗口里完成，不会被"点邮件链接跳去别的房间"这个问题
+      卡住，主屏幕 App 登一次会一直保持登录，是从根源上避开这个坑的方案。
 - [x] PWA 安装引导（2026-08-27）—— 加了 `InstallPrompt.tsx`：iOS 显示"用 Safari 加到
       主画面"的文字提示（iOS 没有自动弹窗这个 API），Android/桌面 Chrome 用系统自带的
       安装弹窗。顺手发现 PWA manifest 之前完全没配图标（装不成、Chrome 的安装按钮可能

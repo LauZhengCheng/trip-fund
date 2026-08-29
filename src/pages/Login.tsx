@@ -2,9 +2,10 @@ import { useState, type FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
 
 export function Login() {
-  const { signInWithEmail, signInWithGoogle } = useAuth()
+  const { signInWithEmail, verifyEmailCode, signInWithGoogle } = useAuth()
   const [email, setEmail] = useState('')
-  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [code, setCode] = useState('')
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'verifying' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
 
   async function handleSubmit(e: FormEvent) {
@@ -19,21 +20,56 @@ export function Login() {
     }
   }
 
+  async function handleVerify(e: FormEvent) {
+    e.preventDefault()
+    setStatus('verifying')
+    const { error } = await verifyEmailCode(email, code.trim())
+    if (error) {
+      setErrorMessage(error)
+      setStatus('sent')
+    }
+    // On success, onAuthStateChange picks up the new session -- nothing else to do here.
+  }
+
   async function handleGoogleClick() {
     const { error } = await signInWithGoogle()
     if (error) setErrorMessage(error)
     // On success the browser navigates away to Google, so nothing else to do here.
   }
 
-  if (status === 'sent') {
+  if (status === 'sent' || status === 'verifying') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-neutral-50 px-4">
-        <div className="max-w-sm text-center">
-          <h1 className="text-xl font-semibold mb-2">Check your email</h1>
+        <div className="w-full max-w-sm space-y-4 text-center">
+          <h1 className="text-xl font-semibold">Check your email</h1>
           <p className="text-neutral-600">
-            We sent a sign-in link to <span className="font-medium">{email}</span>. Open it on
-            this device to continue.
+            We sent a code and a sign-in link to <span className="font-medium">{email}</span>.
           </p>
+          <p className="text-sm text-neutral-500">
+            If you're using the app from your home screen icon, tapping the link in the email
+            won't work (it always opens your regular browser instead) — type the 6-digit code
+            below instead.
+          </p>
+          <form onSubmit={handleVerify} className="space-y-3 text-left">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoFocus
+              required
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="123456"
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-neutral-400"
+            />
+            <button
+              type="submit"
+              disabled={status === 'verifying' || !code.trim()}
+              className="w-full rounded-lg bg-neutral-900 py-2 font-medium text-white disabled:opacity-50"
+            >
+              {status === 'verifying' ? 'Checking…' : 'Verify code'}
+            </button>
+          </form>
+          {errorMessage && <p className="text-sm text-red-600">{errorMessage}</p>}
         </div>
       </div>
     )
@@ -90,7 +126,7 @@ export function Login() {
             disabled={status === 'sending'}
             className="w-full rounded-lg bg-neutral-900 text-white py-2 font-medium disabled:opacity-50"
           >
-            {status === 'sending' ? 'Sending…' : 'Send sign-in link'}
+            {status === 'sending' ? 'Sending…' : 'Send sign-in code'}
           </button>
         </form>
 
