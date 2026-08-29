@@ -154,6 +154,13 @@
       `notify_pending_activity()` 定时任务已经废弃，改用新的 `notify_activity_event()`
       触发器函数。真正的 VAPID 签名/加密/发送还是在 Edge Function 那边用
       `web-push` 这个 npm 包做，这部分没变。
+      **实测又踩了一个权限坑（2026-08-29）**：VAPID 密钥修好之后，Edge Function
+      再往下一步又报 `permission denied for table push_subscriptions`——这个
+      Edge Function 是用 `service_role`（后台身份）连数据库的，但项目一开始
+      「显式授权」那一段只给了 `authenticated`（网页登录的一般用户）读写权限，
+      从来没给过 `service_role`，因为这是整个项目第一次真正用到这个身份。补了一段
+      `grant ... to service_role`，直接给 `service_role` 开放所有表（这把钥匙
+      只有我们自己的后台代码用得到，不会给浏览器，开放权限没有额外风险）。
       **通知开关改成一个铃铛图标**（2026-08-29，Zachary 要求）：点一下切换开/关，
       开着是实心铃铛、关掉是加一道斜线的铃铛，不再是文字链接。**默认是开的**——
       第一次在这台设备打开这本账，会自动尝试订阅（不用先点一下）；如果手机上这个
