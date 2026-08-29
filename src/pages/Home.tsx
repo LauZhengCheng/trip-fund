@@ -404,7 +404,7 @@ function MembersList({
 
         {onInvite && (
           <button onClick={onInvite} className="text-sm font-medium text-neutral-900 underline">
-            + Invite a family member
+            + Invite a member
           </button>
         )}
 
@@ -639,7 +639,7 @@ function InviteLink({ tripId, onDone }: { tripId: string; onDone: () => void }) 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
       <div className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-5">
-        <h2 className="text-lg font-semibold">Invite a family member</h2>
+        <h2 className="text-lg font-semibold">Invite a member</h2>
         <p className="text-sm text-neutral-500">
           Anyone who opens this link and signs in gets read-only (member) access to this trip.
         </p>

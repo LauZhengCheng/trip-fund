@@ -26,8 +26,7 @@ function formatMinor(minor: number, exponent: number): string {
 type ActivityPayload = {
   type: 'activity'
   trip_id: string
-  event_count: number
-  summaries: string[]
+  summary: string
   exclude_member_ids?: string[]
 }
 
@@ -59,9 +58,7 @@ function buildMessage(payload: Payload, tripName: string): { title: string; body
     }
   }
 
-  const [first, ...rest] = payload.summaries
-  const body = rest.length > 0 ? `${first} (+${rest.length} more update${rest.length === 1 ? '' : 's'})` : first
-  return { title: tripName, body }
+  return { title: tripName, body: payload.summary }
 }
 
 Deno.serve(async (req) => {
@@ -91,6 +88,8 @@ Deno.serve(async (req) => {
   const excludeIds = new Set('exclude_member_ids' in payload ? (payload.exclude_member_ids ?? []) : [])
   const targets = (subs ?? []).filter((s) => !excludeIds.has(s.member_id))
 
+  console.log(`send-push: trip=${payload.trip_id} type=${payload.type} targets=${targets.length} title=${JSON.stringify(title)} body=${JSON.stringify(body)}`)
+
   const results = await Promise.allSettled(
     targets.map((s) =>
       webpush.sendNotification(
@@ -103,8 +102,9 @@ Deno.serve(async (req) => {
   const staleIds: string[] = []
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      const statusCode = (r.reason as { statusCode?: number } | undefined)?.statusCode
-      if (statusCode === 404 || statusCode === 410) staleIds.push(targets[i].id)
+      const reason = r.reason as { statusCode?: number; body?: string; message?: string } | undefined
+      console.error(`send-push: failed for endpoint ${targets[i].endpoint.slice(0, 60)}... statusCode=${reason?.statusCode} body=${reason?.body} message=${reason?.message}`)
+      if (reason?.statusCode === 404 || reason?.statusCode === 410) staleIds.push(targets[i].id)
     }
   })
   if (staleIds.length > 0) {

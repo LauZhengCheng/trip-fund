@@ -616,10 +616,10 @@ create policy "settlements_delete" on settlements
   for delete using (role_level(trip_id) >= 2);
 
 -- ============================================================
--- 11. Web Push —— 这本账里发生的任何事 -> 60 秒合并 -> 推给家人；外加每晚一条汇总
+-- 11. Web Push —— 这本账里发生的任何事，几乎即时推给家人；外加每晚一条汇总
 -- 整条链路：各种表的触发器把"发生了什么"写成一句人话存进 activity_events ->
--- pg_cron 每分钟跑一次 notify_pending_activity() -> 用 pg_net 调用 Edge Function
--- send-push -> Edge Function 用 VAPID 签名真的把推送发出去。
+-- 存进去这个动作本身的触发器立刻用 pg_net 调用 Edge Function send-push ->
+-- Edge Function 用 VAPID 签名真的把推送发出去。全程没有排队等待，插入即发送。
 -- 数据库这边完全不知道怎么加密/签名推送内容，只负责"发生了什么、该不该发、发给谁"。
 -- ============================================================
 create extension if not exists pg_cron with schema pg_catalog;
@@ -783,18 +783,19 @@ create trigger on_comment_created
 -- select vault.create_secret('https://xxx.supabase.co', 'supabase_url');
 -- select vault.create_secret('xxx', 'push_cron_secret');
 
--- 每分钟检查一次：这本账有没有还没通知过的新事件（等 10 秒让同一批连续动作
--- 落定，一次性合并成一条推送，不要每件事都弹）。同一个人自己连续做的这一批，
--- 不推给他自己；换了别人一起动手，大家都收到。批量事件超过一条时，推送内容
--- 只显示第一条 + "还有 N 条"，完整清单还是要打开 App 看。
-create or replace function notify_pending_activity()
-returns void
+-- 每件事发生的当下就直接推，不再攒批（2026-08-29 改的——Zachary 反馈等一分钟
+-- 才收到通知太没效率）。代价跟当初想避免的问题是同一件事：如果一顿饭连续记了
+-- 好几笔，手机会连响好几声，不会合并成一条。先接受这个取舍，如果之后家人真的
+-- 因为响太多次而想关通知，再回来考虑合并。
+-- 触发时机是 activity_events 表本身的 insert，不是记账/评论/加钱包各自的表——
+-- 这样送信这件事只写一个地方，各种"发生了什么"的触发器都不用各自管发送逻辑。
+create or replace function notify_activity_event()
+returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  r record;
   v_url text;
   v_secret text;
   v_excluded uuid[];
@@ -803,49 +804,35 @@ begin
   select decrypted_secret into v_secret from vault.decrypted_secrets where name = 'push_cron_secret';
 
   if v_url is null or v_secret is null then
-    return;
+    return new;
   end if;
 
-  for r in
-    select
-      trip_id,
-      count(*) as event_count,
-      array_agg(summary order by created_at) as summaries,
-      array_agg(distinct actor_user_id) as actors
-    from activity_events
-    where notified_at is null
-      and created_at <= now() - interval '10 seconds'
-    group by trip_id
-  loop
-    v_excluded := null;
-    if array_length(r.actors, 1) = 1 and r.actors[1] is not null then
-      select array_agg(m.id) into v_excluded
-      from members m
-      where m.trip_id = r.trip_id and m.user_id = r.actors[1];
-    end if;
+  if new.actor_user_id is not null then
+    select array_agg(m.id) into v_excluded
+    from members m
+    where m.trip_id = new.trip_id and m.user_id = new.actor_user_id;
+  end if;
 
-    perform net.http_post(
-      url := v_url || '/functions/v1/send-push',
-      headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', v_secret),
-      body := jsonb_build_object(
-        'type', 'activity',
-        'trip_id', r.trip_id,
-        'event_count', r.event_count,
-        'summaries', to_jsonb(r.summaries),
-        'exclude_member_ids', coalesce(to_jsonb(v_excluded), '[]'::jsonb)
-      )
-    );
+  perform net.http_post(
+    url := v_url || '/functions/v1/send-push',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', v_secret),
+    body := jsonb_build_object(
+      'type', 'activity',
+      'trip_id', new.trip_id,
+      'summary', new.summary,
+      'exclude_member_ids', coalesce(to_jsonb(v_excluded), '[]'::jsonb)
+    )
+  );
 
-    update activity_events
-    set notified_at = now()
-    where trip_id = r.trip_id
-      and notified_at is null
-      and created_at <= now() - interval '10 seconds';
-  end loop;
+  update activity_events set notified_at = now() where id = new.id;
+
+  return new;
 end;
 $$;
 
-select cron.schedule('notify-pending-activity', '* * * * *', $$select notify_pending_activity();$$);
+create trigger on_activity_event_created
+  after insert on activity_events
+  for each row execute function notify_activity_event();
 
 -- 每晚一条汇总（默认马来西亚时间 21:00 = UTC 13:00，印尼 WIB 只差 1 小时，
 -- 想改时间的话直接改下面这行的 cron 表达式重跑就行，不用动函数本身）。
