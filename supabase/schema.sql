@@ -616,50 +616,43 @@ create policy "settlements_delete" on settlements
   for delete using (role_level(trip_id) >= 2);
 
 -- ============================================================
--- 11. Web Push —— 插入一行 -> 60 秒合并 -> 推给家人；外加每晚一条汇总
--- 整条链路：pg_cron 每分钟跑一次 notify_pending_entries() -> 用 pg_net 调用
--- Edge Function send-push -> Edge Function 用 VAPID 签名真的把推送发出去。
--- 数据库这边完全不知道怎么加密/签名推送内容，只负责"该不该发、发给谁、发什么数字"。
+-- 11. Web Push —— 这本账里发生的任何事 -> 60 秒合并 -> 推给家人；外加每晚一条汇总
+-- 整条链路：各种表的触发器把"发生了什么"写成一句人话存进 activity_events ->
+-- pg_cron 每分钟跑一次 notify_pending_activity() -> 用 pg_net 调用 Edge Function
+-- send-push -> Edge Function 用 VAPID 签名真的把推送发出去。
+-- 数据库这边完全不知道怎么加密/签名推送内容，只负责"发生了什么、该不该发、发给谁"。
 -- ============================================================
 create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net with schema extensions;
 
--- entries 上加一个"这条有没有被推送过"的标记，cron 用它找出还没通知的新记录。
-alter table entries add column if not exists notified_at timestamptz;
+-- 这本账里任何"值得让家人知道"的事——新记账、改动、删除、还原、加评论、
+-- 加钱包——都在这里存一句预先写好的人话摘要，cron 隔一分钟批量捞出来发。
+-- 不挂在 entries 表自己身上（不像最早的设计只在 entries 加个 notified_at 字段），
+-- 是因为评论、加钱包这些事根本不发生在 entries 表上，得有一个大家共用的地方。
+create table activity_events (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references trips(id) on delete cascade,
+  actor_user_id uuid references auth.users(id),
+  summary text not null,
+  created_at timestamptz not null default now(),
+  notified_at timestamptz
+);
 
--- 只标记 notified_at、其余字段不变的这种更新，不算真正的编辑——
--- 不然家人点开一笔账会看到一条来路不明、谁都没改过内容的"update"历史，
--- 也会被 EntryList 误判成挂上"Edited"标签（那个标签只看 updated_at 有没有变，
--- 但 entry_history 这边如果照旧全部记录，历史清单本身还是会多一条没用的噪音）。
-create or replace function log_entry_change()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
+alter table activity_events enable row level security;
+-- 故意不给 authenticated 任何 policy——这张表只给 SECURITY DEFINER 的触发器/
+-- cron 函数用，前端不需要也不应该直接读它，RLS 开着但没 policy 等于完全锁死。
+
+-- 跟前端 money.ts 里 formatMinorUnits 的效果对齐（千分位、按 exponent 决定小数位），
+-- 推送文案里报金额要用这个，不要在每个触发器里各自拼字符串。
+create or replace function format_minor(p_minor bigint, p_exponent int)
+returns text
+language sql
+immutable
 as $$
-begin
-  if tg_op = 'INSERT' then
-    insert into entry_history (entry_id, trip_id, action, before, after, changed_by)
-    values (new.id, new.trip_id, 'insert', null, to_jsonb(new), auth.uid());
-    return new;
-  elsif tg_op = 'UPDATE' then
-    if (to_jsonb(old) - 'notified_at') = (to_jsonb(new) - 'notified_at') then
-      return new;
-    end if;
-    insert into entry_history (entry_id, trip_id, action, before, after, reason, changed_by)
-    values (
-      new.id, new.trip_id,
-      case when new.deleted_at is not null and old.deleted_at is null then 'delete'
-           when new.deleted_at is null and old.deleted_at is not null then 'restore'
-           else 'update' end,
-      to_jsonb(old), to_jsonb(new),
-      nullif(current_setting('trip_fund.edit_reason', true), ''),
-      auth.uid()
-    );
-    return new;
-  end if;
-  return null;
-end;
+  select case
+    when p_exponent = 0 then to_char(p_minor, 'FM999,999,999,999')
+    else to_char(p_minor / (10.0 ^ p_exponent), 'FM999,999,999,999.' || repeat('0', p_exponent))
+  end;
 $$;
 
 -- 跟前端 money.ts 里 POSITIVE_TYPES 的口径必须完全一致，写成一个函数、
@@ -675,19 +668,126 @@ as $$
   end;
 $$;
 
+-- 记账这边：新增/编辑/软删除/还原都算一件事，写一条 activity_events。
+-- 换汇/转账一次操作会插两条互相配对的 entries（一出一入），只在"出"那条上报事件，
+-- 不然一次 Move 会被算成两件事、推两条通知。
+-- 依旧顺手保留了之前那个坑的修法：只有 notified_at 这个字段变化的更新不算真编辑，
+-- 不然家人点开一笔账会看到一条谁都没改过内容的"update"历史。
+create or replace function log_entry_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_wallet_label text;
+  v_exponent int;
+  v_summary text;
+begin
+  select label, exponent into v_wallet_label, v_exponent
+  from wallets where id = coalesce(new.wallet_id, old.wallet_id);
+
+  if tg_op = 'INSERT' then
+    insert into entry_history (entry_id, trip_id, action, before, after, changed_by)
+    values (new.id, new.trip_id, 'insert', null, to_jsonb(new), auth.uid());
+
+    if new.type in ('expense', 'contribution') then
+      v_summary := initcap(new.type) || ' in ' || v_wallet_label || ': ' ||
+        format_minor(new.amount_minor, v_exponent) ||
+        coalesce(' (' || new.category || ')', '') ||
+        coalesce(' — ' || new.note, '');
+      insert into activity_events (trip_id, actor_user_id, summary)
+      values (new.trip_id, new.created_by, v_summary);
+    elsif new.type in ('transfer_out', 'fx_out') then
+      insert into activity_events (trip_id, actor_user_id, summary)
+      values (new.trip_id, new.created_by, 'Money moved from ' || v_wallet_label || ': ' || format_minor(new.amount_minor, v_exponent));
+    end if;
+
+    return new;
+  elsif tg_op = 'UPDATE' then
+    if (to_jsonb(old) - 'notified_at') = (to_jsonb(new) - 'notified_at') then
+      return new;
+    end if;
+
+    insert into entry_history (entry_id, trip_id, action, before, after, reason, changed_by)
+    values (
+      new.id, new.trip_id,
+      case when new.deleted_at is not null and old.deleted_at is null then 'delete'
+           when new.deleted_at is null and old.deleted_at is not null then 'restore'
+           else 'update' end,
+      to_jsonb(old), to_jsonb(new),
+      nullif(current_setting('trip_fund.edit_reason', true), ''),
+      auth.uid()
+    );
+
+    if new.deleted_at is not null and old.deleted_at is null then
+      v_summary := 'Deleted from ' || v_wallet_label || ': ' || format_minor(new.amount_minor, v_exponent);
+    elsif new.deleted_at is null and old.deleted_at is not null then
+      v_summary := 'Restored in ' || v_wallet_label || ': ' || format_minor(new.amount_minor, v_exponent);
+    else
+      v_summary := 'Edited an entry in ' || v_wallet_label;
+    end if;
+    insert into activity_events (trip_id, actor_user_id, summary)
+    values (new.trip_id, auth.uid(), v_summary);
+
+    return new;
+  end if;
+  return null;
+end;
+$$;
+
+-- 加钱包：wallets 表本来就没有 created_by 字段，事件里就不记是谁加的，
+-- 单纯让大家知道"多了一个钱包"这件事。
+create or replace function log_wallet_created()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into activity_events (trip_id, summary)
+  values (new.trip_id, 'New wallet added: ' || new.label || ' (' || new.currency || ')');
+  return new;
+end;
+$$;
+
+create trigger on_wallet_created
+  after insert on wallets
+  for each row execute function log_wallet_created();
+
+-- 加评论：body 太长的话只截前 80 字，推送通知本来就不是拿来读全文的。
+create or replace function log_comment_created()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into activity_events (trip_id, actor_user_id, summary)
+  values (new.trip_id, new.author_id, 'New comment: ' || left(new.body, 80));
+  return new;
+end;
+$$;
+
+create trigger on_comment_created
+  after insert on comments
+  for each row execute function log_comment_created();
+
 -- 把「域名」和「跟 Edge Function 之间的共享密码」存起来，这样 SQL 函数才读得到，
 -- 不用把密码明文写死在函数定义里。
 -- 原本想用 `alter database postgres set app.settings.xxx = ...`，但 Supabase
 -- 托管的 Postgres 不让 SQL Editor 这边的 postgres 角色改数据库级别的自定义参数
 -- （权限不够，报 42501），这条路走不通，改用 Supabase 自带的 Vault 存密钥。
--- 这两行要 Zachary 自己拿 .env 里的实际值填进去跑一次（占位符不能直接用）。
+-- 这两行要 Zachary 自己拿 .env 里的实际值填进去跑一次（占位符不能直接用），
+-- 如果之前已经跑过一次，这两行会报"已存在"，跳过不用管。
 -- select vault.create_secret('https://xxx.supabase.co', 'supabase_url');
 -- select vault.create_secret('xxx', 'push_cron_secret');
 
--- 每分钟检查一次：哪些钱包有还没通知过的新记录（等 10 秒让同一顿饭的连续几笔
--- 落定，一次性合并成一条推送，不要每笔都弹）。同一个操作者連续记的这一批，
--- 不用推给他自己；换了别人一起记的批次，大家都收到。
-create or replace function notify_pending_entries()
+-- 每分钟检查一次：这本账有没有还没通知过的新事件（等 10 秒让同一批连续动作
+-- 落定，一次性合并成一条推送，不要每件事都弹）。同一个人自己连续做的这一批，
+-- 不推给他自己；换了别人一起动手，大家都收到。批量事件超过一条时，推送内容
+-- 只显示第一条 + "还有 N 条"，完整清单还是要打开 App 看。
+create or replace function notify_pending_activity()
 returns void
 language plpgsql
 security definer
@@ -698,7 +798,6 @@ declare
   v_url text;
   v_secret text;
   v_excluded uuid[];
-  v_balance bigint;
 begin
   select decrypted_secret into v_url from vault.decrypted_secrets where name = 'supabase_url';
   select decrypted_secret into v_secret from vault.decrypted_secrets where name = 'push_cron_secret';
@@ -709,56 +808,44 @@ begin
 
   for r in
     select
-      e.wallet_id, e.trip_id, w.label as wallet_label, w.currency, w.exponent,
-      count(*) as entry_count,
-      sum(entry_signed_amount(e.type, e.amount_minor)) as net_amount_minor,
-      array_agg(distinct e.created_by) as actors
-    from entries e
-    join wallets w on w.id = e.wallet_id
-    where e.notified_at is null
-      and e.deleted_at is null
-      and e.created_at <= now() - interval '10 seconds'
-      and e.type in ('expense', 'contribution')
-    group by e.wallet_id, e.trip_id, w.label, w.currency, w.exponent
+      trip_id,
+      count(*) as event_count,
+      array_agg(summary order by created_at) as summaries,
+      array_agg(distinct actor_user_id) as actors
+    from activity_events
+    where notified_at is null
+      and created_at <= now() - interval '10 seconds'
+    group by trip_id
   loop
     v_excluded := null;
-    if array_length(r.actors, 1) = 1 then
+    if array_length(r.actors, 1) = 1 and r.actors[1] is not null then
       select array_agg(m.id) into v_excluded
       from members m
       where m.trip_id = r.trip_id and m.user_id = r.actors[1];
     end if;
 
-    select coalesce(sum(entry_signed_amount(type, amount_minor)), 0) into v_balance
-    from entries where wallet_id = r.wallet_id and deleted_at is null;
-
     perform net.http_post(
       url := v_url || '/functions/v1/send-push',
       headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', v_secret),
       body := jsonb_build_object(
-        'type', 'batch',
+        'type', 'activity',
         'trip_id', r.trip_id,
-        'wallet_label', r.wallet_label,
-        'currency', r.currency,
-        'exponent', r.exponent,
-        'entry_count', r.entry_count,
-        'net_amount_minor', r.net_amount_minor,
-        'balance_minor', v_balance,
+        'event_count', r.event_count,
+        'summaries', to_jsonb(r.summaries),
         'exclude_member_ids', coalesce(to_jsonb(v_excluded), '[]'::jsonb)
       )
     );
 
-    update entries
+    update activity_events
     set notified_at = now()
-    where wallet_id = r.wallet_id
+    where trip_id = r.trip_id
       and notified_at is null
-      and deleted_at is null
-      and type in ('expense', 'contribution')
       and created_at <= now() - interval '10 seconds';
   end loop;
 end;
 $$;
 
-select cron.schedule('notify-pending-entries', '* * * * *', $$select notify_pending_entries();$$);
+select cron.schedule('notify-pending-activity', '* * * * *', $$select notify_pending_activity();$$);
 
 -- 每晚一条汇总（默认马来西亚时间 21:00 = UTC 13:00，印尼 WIB 只差 1 小时，
 -- 想改时间的话直接改下面这行的 cron 表达式重跑就行，不用动函数本身）。

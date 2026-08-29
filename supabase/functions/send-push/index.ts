@@ -23,15 +23,11 @@ function formatMinor(minor: number, exponent: number): string {
   }).format(value)
 }
 
-type BatchPayload = {
-  type: 'batch'
+type ActivityPayload = {
+  type: 'activity'
   trip_id: string
-  wallet_label: string
-  currency: string
-  exponent: number
-  entry_count: number
-  net_amount_minor: number
-  balance_minor: number
+  event_count: number
+  summaries: string[]
   exclude_member_ids?: string[]
 }
 
@@ -46,13 +42,12 @@ type DailyPayload = {
   balance_minor: number
 }
 
-type Payload = BatchPayload | DailyPayload
+type Payload = ActivityPayload | DailyPayload
 
-function buildMessage(payload: Payload): { title: string; body: string } {
-  const symbol = CURRENCY_SYMBOLS[payload.currency] ?? payload.currency
-  const balance = formatMinor(payload.balance_minor, payload.exponent)
-
+function buildMessage(payload: Payload, tripName: string): { title: string; body: string } {
   if (payload.type === 'daily') {
+    const symbol = CURRENCY_SYMBOLS[payload.currency] ?? payload.currency
+    const balance = formatMinor(payload.balance_minor, payload.exponent)
     const spent = formatMinor(payload.spent_today_minor, payload.exponent)
     const contributedPart =
       payload.contributed_today_minor > 0
@@ -64,14 +59,9 @@ function buildMessage(payload: Payload): { title: string; body: string } {
     }
   }
 
-  const net = payload.net_amount_minor
-  const netStr = formatMinor(Math.abs(net), payload.exponent)
-  const verb = net < 0 ? 'spent' : 'added'
-  const noun = payload.entry_count === 1 ? 'entry' : 'entries'
-  return {
-    title: payload.wallet_label,
-    body: `${payload.entry_count} new ${noun} — ${symbol} ${netStr} ${verb}. Balance: ${symbol} ${balance}.`,
-  }
+  const [first, ...rest] = payload.summaries
+  const body = rest.length > 0 ? `${first} (+${rest.length} more update${rest.length === 1 ? '' : 's'})` : first
+  return { title: tripName, body }
 }
 
 Deno.serve(async (req) => {
@@ -80,9 +70,14 @@ Deno.serve(async (req) => {
   }
 
   const payload = (await req.json()) as Payload
-  const { title, body } = buildMessage(payload)
-
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+  let tripName = 'Trip Fund'
+  if (payload.type === 'activity') {
+    const { data: trip } = await supabase.from('trips').select('name').eq('id', payload.trip_id).single()
+    if (trip?.name) tripName = trip.name
+  }
+  const { title, body } = buildMessage(payload, tripName)
 
   const { data: subs, error } = await supabase
     .from('push_subscriptions')
