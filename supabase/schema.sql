@@ -894,6 +894,40 @@ $$;
 select cron.schedule('notify-daily-summary', '0 13 * * *', $$select notify_daily_summary();$$);
 
 -- ============================================================
+-- 12. 置顶行程 —— 一个账号能加入很多本账，每个人自己决定哪几本放最上面
+-- 存在 members 表（本来就是"这个人在这本账里"这一行），不是每本账共用一个顺序，
+-- 你置顶不会影响家人看到的顺序，反过来也一样。
+-- ============================================================
+alter table members add column if not exists pinned_at timestamptz;
+
+-- 用 SECURITY DEFINER 函数只改自己那一行的 pinned_at，不开一个通用的
+-- "member 能改自己那一行" UPDATE policy——那样等于顺便开放了改自己的 role，
+-- 一个 member 可以把自己升级成 owner，是个权限漏洞。函数把能动的范围锁死在
+-- 这一个字段，怎么调都碰不到别的东西。
+create or replace function set_trip_pinned(p_trip_id uuid, p_pinned boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update members
+  set pinned_at = case when p_pinned then now() else null end
+  where trip_id = p_trip_id and user_id = auth.uid();
+end;
+$$;
+
+grant execute on function set_trip_pinned(uuid, boolean) to authenticated;
+
+-- 删除整本账（Owner 专属，铁律里写好的权限，数据库层面 trips_owner_delete 这条
+-- policy 步骤 5 就建好了，一直没有对应的前端功能——这次一起补上）。
+-- 所有 trip_id 相关的表都是 on delete cascade，删掉这一行，钱包/记账/评论/
+-- 邀请链接/结算快照全部跟着清掉，不会留下孤儿数据。
+-- 唯一没自动清的是 Storage 里的收据照片文件（Storage 不吃外键级联），
+-- 目前先不处理，删掉的账本一般不会再有人去查那些照片，之后如果介意存储空间
+-- 再回来加清理逻辑。
+
+-- ============================================================
 -- 显式授权给 authenticated 角色
 -- 建项目时关掉了 "Automatically expose new tables"，所以这一步不会自动发生。
 -- 这里只是"允许尝试读写"，真正决定"能看到/改到哪些行"的还是上面那些 RLS 策略。
