@@ -121,9 +121,16 @@
       （公钥/私钥/一个跟 Edge Function 之间的共享密码，私钥和密码没写进聊天记录，
       只在本地 `.env` 里，`README.md`「Web Push」一节有完整步骤）；
       ② 去 SQL Editor 跑 `schema.sql`「11. Web Push」那一节，再单独把两行
-      `alter database postgres set app.settings...` 的占位符换成真实值跑一次；
+      `select vault.create_secret(...)` 的占位符换成真实值跑一次；
       ③ 用 Supabase CLI 部署 `supabase/functions/send-push`，把四个密钥
       `supabase secrets set` 进去。
+      **实测踩了一个坑（2026-08-29）**：存密钥那两行本来写的是
+      `alter database postgres set app.settings.xxx = ...`，Zachary 实际跑的时候
+      报 `42501: permission denied to set parameter`——Supabase 托管数据库不给
+      SQL Editor 这边的 postgres 角色改数据库级别的自定义参数，这条路在托管环境
+      走不通（自建 Postgres 才行）。改用 Supabase 自带的 Vault
+      （`vault.create_secret()` 存、`vault.decrypted_secrets` 读），两个 cron
+      函数也跟着改成从 Vault 读，不再依赖 `current_setting`。
       **架构**：新记账不是立刻推——`pg_cron` 每分钟跑一次，把每个钱包"还没通知过"
       的新记录（用 `entries.notified_at` 这个新字段标记）合并成一条，等 10 秒
       让同一顿饭连续记的几笔落定再一起推，同一个人自己连续记的这一批不会推给他
