@@ -50,9 +50,12 @@ VITE_SUPABASE_ANON_KEY=
 2. **在 Supabase SQL Editor 跑 `supabase/schema.sql` 里「Web Push」那一节**，
    然后单独把这两行的占位符换成真实值再跑一次（`.env` 里能找到）：
    ```sql
-   alter database postgres set app.settings.supabase_url = 'https://你的项目.supabase.co';
-   alter database postgres set app.settings.push_cron_secret = '.env 里的 PUSH_CRON_SECRET';
+   select vault.create_secret('https://你的项目.supabase.co', 'supabase_url');
+   select vault.create_secret('.env 里的 PUSH_CRON_SECRET', 'push_cron_secret');
    ```
+   （最初想用 `alter database ... set app.settings.xxx` 存这两个值，但 Supabase
+   托管数据库不给 SQL Editor 的 postgres 角色改数据库级别参数的权限，改用
+   Supabase 自带的 Vault。）
 
 3. **部署 Edge Function**（需要 Supabase CLI，本地终端跑）：
    ```

@@ -675,11 +675,14 @@ as $$
   end;
 $$;
 
--- 把「域名」和「跟 Edge Function 之间的共享密码」存成数据库级别的设置，
--- 这样 SQL 函数才读得到，不用把密码明文写死在函数定义里。
+-- 把「域名」和「跟 Edge Function 之间的共享密码」存起来，这样 SQL 函数才读得到，
+-- 不用把密码明文写死在函数定义里。
+-- 原本想用 `alter database postgres set app.settings.xxx = ...`，但 Supabase
+-- 托管的 Postgres 不让 SQL Editor 这边的 postgres 角色改数据库级别的自定义参数
+-- （权限不够，报 42501），这条路走不通，改用 Supabase 自带的 Vault 存密钥。
 -- 这两行要 Zachary 自己拿 .env 里的实际值填进去跑一次（占位符不能直接用）。
--- alter database postgres set app.settings.supabase_url = 'https://xxx.supabase.co';
--- alter database postgres set app.settings.push_cron_secret = 'xxx';
+-- select vault.create_secret('https://xxx.supabase.co', 'supabase_url');
+-- select vault.create_secret('xxx', 'push_cron_secret');
 
 -- 每分钟检查一次：哪些钱包有还没通知过的新记录（等 10 秒让同一顿饭的连续几笔
 -- 落定，一次性合并成一条推送，不要每笔都弹）。同一个操作者連续记的这一批，
@@ -692,11 +695,14 @@ set search_path = public
 as $$
 declare
   r record;
-  v_url text := current_setting('app.settings.supabase_url', true);
-  v_secret text := current_setting('app.settings.push_cron_secret', true);
+  v_url text;
+  v_secret text;
   v_excluded uuid[];
   v_balance bigint;
 begin
+  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'supabase_url';
+  select decrypted_secret into v_secret from vault.decrypted_secrets where name = 'push_cron_secret';
+
   if v_url is null or v_secret is null then
     return;
   end if;
@@ -765,10 +771,13 @@ set search_path = public
 as $$
 declare
   r record;
-  v_url text := current_setting('app.settings.supabase_url', true);
-  v_secret text := current_setting('app.settings.push_cron_secret', true);
+  v_url text;
+  v_secret text;
   v_balance bigint;
 begin
+  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'supabase_url';
+  select decrypted_secret into v_secret from vault.decrypted_secrets where name = 'push_cron_secret';
+
   if v_url is null or v_secret is null then
     return;
   end if;
