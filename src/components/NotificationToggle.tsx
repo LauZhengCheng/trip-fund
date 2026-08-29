@@ -45,8 +45,8 @@ export function NotificationToggle({ memberId }: { memberId: string | null }) {
   if (!isPushSupported()) {
     if (isIOS() && !isStandalone()) {
       return (
-        <p className="mt-1 text-xs text-neutral-400">
-          Add this app to your home screen to turn on notifications.
+        <p className="shrink-0 max-w-28 text-right text-xs text-neutral-400">
+          Add to home screen to turn on notifications.
         </p>
       )
     }
@@ -75,7 +75,7 @@ export function NotificationToggle({ memberId }: { memberId: string | null }) {
   const blocked = pushPermission() === 'denied'
 
   return (
-    <div className="mt-1">
+    <div className="shrink-0 text-right">
       <button
         onClick={handleToggle}
         disabled={busy || blocked}
@@ -87,11 +87,11 @@ export function NotificationToggle({ memberId }: { memberId: string | null }) {
         <BellIcon muted={!subscribed} className="h-5 w-5" />
       </button>
       {blocked && (
-        <p className="mt-0.5 text-xs text-neutral-400">
-          You blocked notifications for this app. Turn them back on in your phone's browser settings.
+        <p className="max-w-28 text-xs text-neutral-400">
+          You blocked notifications. Turn them back on in your phone's browser settings.
         </p>
       )}
-      {error && <p className="mt-0.5 text-xs text-red-600">{error}</p>}
+      {error && <p className="max-w-28 text-xs text-red-600">{error}</p>}
     </div>
   )
 }

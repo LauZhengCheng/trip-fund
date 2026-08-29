@@ -97,6 +97,12 @@
       全屏模式下打开（`display-mode: standalone` / iOS 的 `navigator.standalone`），
       顶部显示一条可关闭的提示，建议"已经装过的话下次直接从主屏幕打开"。顺手把这个
       判断逻辑从 `InstallPrompt.tsx` 抽成共用的 `src/lib/platform.ts`。
+      **Home 页头部整理（2026-08-29）**：Zachary 反馈头部 Members/Invite/头像
+      挤在一起太乱——把 Invite 收进 Members 弹窗里面（admin 打开 Members 能看到
+      一个"+ Invite a family member"按钮，不用在头部单独占一个位置），头部只留
+      Trips / trip 名字 / Members / 头像。通知铃铛也从原本堆在余额下面的一长串
+      文字链接中间，移到余额数字那一行的最右边（同一行，靠右对齐），不会看起来
+      全部挤在左边。
 
 ---
 
