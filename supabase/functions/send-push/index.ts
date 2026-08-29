@@ -26,8 +26,7 @@ function formatMinor(minor: number, exponent: number): string {
 type ActivityPayload = {
   type: 'activity'
   trip_id: string
-  event_count: number
-  summaries: string[]
+  summary: string
   exclude_member_ids?: string[]
 }
 
@@ -59,9 +58,7 @@ function buildMessage(payload: Payload, tripName: string): { title: string; body
     }
   }
 
-  const [first, ...rest] = payload.summaries
-  const body = rest.length > 0 ? `${first} (+${rest.length} more update${rest.length === 1 ? '' : 's'})` : first
-  return { title: tripName, body }
+  return { title: tripName, body: payload.summary }
 }
 
 Deno.serve(async (req) => {
