@@ -908,6 +908,17 @@ grant execute on function restore_entry(uuid, text) to authenticated;
 grant execute on function create_transfer(uuid, uuid, uuid, bigint, bigint, text, text, numeric, text, text, timestamptz) to authenticated;
 
 -- ============================================================
+-- 显式授权给 service_role（send-push 这个 Edge Function 用这个身份连数据库）
+-- 同样因为关掉了 "Automatically expose new tables"，这个角色也不会自动拿到权限——
+-- 实测踩过这个坑：Edge Function 用 service_role 查 push_subscriptions 时被拒绝，
+-- 报 "permission denied for table push_subscriptions"，因为一直只给了 authenticated。
+-- service_role 本来就该有完整权限（只有我们自己的后台代码用得到这把钥匙，
+-- 不会给浏览器），所以直接开放所有表。
+-- ============================================================
+grant usage on schema public to service_role;
+grant select, insert, update, delete on all tables in schema public to service_role;
+
+-- ============================================================
 -- 实时同步：前端订阅了这几张表的变化，得先让它们加入这个发布，
 -- 不然订阅了也收不到任何通知。
 -- ============================================================
