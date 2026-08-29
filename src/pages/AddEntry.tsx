@@ -54,6 +54,8 @@ export function AddEntry({
   const [fromWalletId, setFromWalletId] = useState(defaultWalletId)
   const [toWalletId, setToWalletId] = useState('')
   const [rate, setRate] = useState('')
+  const [receivedAmount, setReceivedAmount] = useState('')
+  const [enterByReceived, setEnterByReceived] = useState(false)
   const fromWallet = wallets.find((w) => w.id === fromWalletId) ?? wallet
   const toWallet = wallets.find((w) => w.id === toWalletId)
   const isExchange = !!toWallet && toWallet.currency !== fromWallet.currency
@@ -85,10 +87,21 @@ export function AddEntry({
         if (isOffline) throw new Error('Moving money between wallets needs an internet connection')
         if (!toWallet) throw new Error('Pick a wallet to move money into')
         const fromAmountMinor = toMinorUnits(Number(amount), fromWallet.exponent)
-        const rateValue = isExchange ? Number(rate) : 1
-        const toAmountMinor = isExchange
-          ? Math.round((fromAmountMinor / 10 ** fromWallet.exponent) * rateValue * 10 ** toWallet.exponent)
-          : toMinorUnits(Number(amount), toWallet.exponent)
+
+        let toAmountMinor: number
+        let rateValue: number | null
+        if (!isExchange) {
+          toAmountMinor = toMinorUnits(Number(amount), toWallet.exponent)
+          rateValue = null
+        } else if (enterByReceived) {
+          toAmountMinor = toMinorUnits(Number(receivedAmount), toWallet.exponent)
+          const fromMajor = fromAmountMinor / 10 ** fromWallet.exponent
+          const toMajor = toAmountMinor / 10 ** toWallet.exponent
+          rateValue = fromMajor > 0 ? toMajor / fromMajor : null
+        } else {
+          rateValue = Number(rate)
+          toAmountMinor = Math.round((fromAmountMinor / 10 ** fromWallet.exponent) * rateValue * 10 ** toWallet.exponent)
+        }
 
         await createTransfer({
           tripId,
@@ -98,7 +111,7 @@ export function AddEntry({
           toAmountMinor,
           fromType: isExchange ? 'fx_out' : 'transfer_out',
           toType: isExchange ? 'fx_in' : 'transfer_in',
-          fxRate: isExchange ? rateValue : null,
+          fxRate: rateValue,
           category: null,
           note: note.trim() || null,
           occurredAt: new Date().toISOString(),
@@ -252,28 +265,75 @@ export function AddEntry({
 
             {isExchange && toWallet && (
               <>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-500">
-                    Exchange rate (1 {fromWallet.currency} = ? {toWallet.currency})
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    step="any"
-                    value={rate}
-                    onChange={(e) => setRate(e.target.value)}
-                    className="w-full rounded-lg border border-neutral-300 px-3 py-2"
-                  />
+                <div className="flex gap-1 rounded-lg bg-neutral-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setEnterByReceived(false)}
+                    className={`flex-1 rounded-md py-1.5 text-xs font-medium ${
+                      !enterByReceived ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'
+                    }`}
+                  >
+                    I know the rate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEnterByReceived(true)}
+                    className={`flex-1 rounded-md py-1.5 text-xs font-medium ${
+                      enterByReceived ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'
+                    }`}
+                  >
+                    I know what I received
+                  </button>
                 </div>
-                {amount && rate && (
-                  <p className="text-xs text-neutral-400">
-                    ≈ {toWallet.currency}{' '}
-                    {(Number(amount) * Number(rate)).toLocaleString('en-US', {
-                      maximumFractionDigits: toWallet.exponent,
-                    })}{' '}
-                    received
-                  </p>
+
+                {!enterByReceived ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      Exchange rate (1 {fromWallet.currency} = ? {toWallet.currency})
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="any"
+                      value={rate}
+                      onChange={(e) => setRate(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+                    />
+                    {amount && rate && (
+                      <p className="mt-1 text-xs text-neutral-400">
+                        ≈ {toWallet.currency}{' '}
+                        {(Number(amount) * Number(rate)).toLocaleString('en-US', {
+                          maximumFractionDigits: toWallet.exponent,
+                        })}{' '}
+                        received
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      Amount received ({toWallet.currency})
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="any"
+                      value={receivedAmount}
+                      onChange={(e) => setReceivedAmount(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+                    />
+                    {amount && receivedAmount && Number(amount) > 0 && (
+                      <p className="mt-1 text-xs text-neutral-400">
+                        Rate: 1 {fromWallet.currency} ≈{' '}
+                        {(Number(receivedAmount) / Number(amount)).toLocaleString('en-US', {
+                          maximumFractionDigits: 4,
+                        })}{' '}
+                        {toWallet.currency}
+                      </p>
+                    )}
+                  </div>
                 )}
               </>
             )}
