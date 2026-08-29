@@ -135,11 +135,6 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
           <button onClick={() => setShowMembers(true)} className="text-sm text-neutral-500">
             Members
           </button>
-          {isAdmin && (
-            <button onClick={() => setShowInvite(true)} className="text-sm text-neutral-500">
-              Invite
-            </button>
-          )}
           <Avatar />
         </div>
       </div>
@@ -162,10 +157,13 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
 
       {activeWallet && (
         <div className="mb-5 px-5">
-          <p className="font-mono text-3xl font-semibold tabular-nums">
-            {CURRENCY_SYMBOLS[activeWallet.currency] ?? activeWallet.currency}{' '}
-            {formatMinorUnits(balance, activeWallet.exponent)}
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-mono text-3xl font-semibold tabular-nums">
+              {CURRENCY_SYMBOLS[activeWallet.currency] ?? activeWallet.currency}{' '}
+              {formatMinorUnits(balance, activeWallet.exponent)}
+            </p>
+            <NotificationToggle memberId={myMemberId} />
+          </div>
           {totalPendingCount > 0 && (
             <p className="mt-1 text-xs font-medium text-amber-600">
               {totalPendingCount} {totalPendingCount === 1 ? 'entry' : 'entries'} waiting to sync
@@ -174,7 +172,6 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
           <button onClick={() => setShowSettlement(true)} className="mt-1 text-xs text-neutral-400 underline">
             Settlement
           </button>
-          <NotificationToggle memberId={myMemberId} />
         </div>
       )}
 
@@ -254,11 +251,16 @@ export function Home({ trip, onBack }: { trip: Trip; onBack: () => void }) {
         />
       )}
 
-      {isAdmin && showInvite && <InviteLink tripId={trip.id} onDone={() => setShowInvite(false)} />}
-
       {showMembers && (
-        <MembersList members={members} myRoleLevel={roleLevel} onClose={() => setShowMembers(false)} />
+        <MembersList
+          members={members}
+          myRoleLevel={roleLevel}
+          onInvite={isAdmin ? () => setShowInvite(true) : undefined}
+          onClose={() => setShowMembers(false)}
+        />
       )}
+
+      {isAdmin && showInvite && <InviteLink tripId={trip.id} onDone={() => setShowInvite(false)} />}
 
       {showSettlement && wallets && wallets.length > 0 && (
         <SettlementView
@@ -342,10 +344,12 @@ function RecycleBin({
 function MembersList({
   members,
   myRoleLevel,
+  onInvite,
   onClose,
 }: {
   members: Member[]
   myRoleLevel: number
+  onInvite?: () => void
   onClose: () => void
 }) {
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -397,6 +401,12 @@ function MembersList({
             Close
           </button>
         </div>
+
+        {onInvite && (
+          <button onClick={onInvite} className="text-sm font-medium text-neutral-900 underline">
+            + Invite a family member
+          </button>
+        )}
 
         {members.length === 0 && <p className="text-sm text-neutral-400">Loading…</p>}
 
